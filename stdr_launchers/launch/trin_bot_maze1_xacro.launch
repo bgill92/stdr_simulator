@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<launch>
+	
+	<include file="$(find stdr_robot)/launch/robot_manager.launch" />
+	
+	<node type="stdr_server_node" pkg="stdr_server" name="stdr_server" output="screen" args="$(find stdr_resources)/maps/maze1.yaml"/>
+
+	<node pkg="tf" type="static_transform_publisher" name="world2map" args="0 0 0 0 0 0  world map 100" />
+	
+	<include file="$(find stdr_gui)/launch/stdr_gui.launch"/>
+    
+    <arg name="x" default="1"/>
+    <arg name="y" default="2"/>
+    <arg name="theta" default="3.14"/>
+    
+<!--     <node name="mybot_spawn" pkg="gazebo_ros" type="spawn_model" output="screen"
+          args="-urdf -param robot_description -model Janus -x $(arg x) -y $(arg y) -z $(arg z)" /> -->
+          
+	<node pkg="stdr_robot" type="robot_handler" name="$(anon robot_spawn)" args="add $(find stdr_resources)/resources/robots/trin_bot.xml $(arg x) $(arg y) $(arg theta)" />
+
+</launch>
