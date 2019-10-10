@@ -1,0 +1,16 @@
+<sonar>
+  <sonar_specifications>
+    <cone_angle>0.436332</cone_angle>
+    <max_range>2.0</max_range>
+    <min_range>0.05</min_range>
+    <frequency>10</frequency>
+    <pose>
+      <x>0</x>
+      <y>0</y>
+      <theta>0</theta>
+    </pose>
+    <noise>
+      <filename>noises/noise_gauss_VL53L0.xml</filename>
+    </noise>
+  </sonar_specifications>
+</sonar>
