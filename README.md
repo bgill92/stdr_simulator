@@ -1,3 +1,5 @@
+Fork of the stdr_simulator repo that is intended to be used for simulating algorithms for the Trinity Firefighting competition
+
 stdr_simulator [![Build Status](https://travis-ci.org/stdr-simulator-ros-pkg/stdr_simulator.png?branch=indigo-devel)](https://travis-ci.org/stdr-simulator-ros-pkg/stdr_simulator)
 ==============
 
