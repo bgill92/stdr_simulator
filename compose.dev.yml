@@ -1,0 +1,52 @@
+name: stdr_simulator
+services:
+  development:
+    build:
+      args:
+        UID: ${UID}
+        GID: ${GID}
+        USER: ${USER}
+        REPO: ${REPO}
+      context: .
+      dockerfile: Dockerfile
+    command: bash -c "export PATH="/usr/lib/ccache:$PATH" &&
+                      source /opt/ros/melodic/setup.bash &&
+                      if [ -f devel/setup.bash ]; then source devel/setup.bash; fi &&
+                      bash"
+    container_name: ${USER}-${REPO}-dev
+    environment:
+      - DISPLAY=${DISPLAY}
+      - QT_X11_NO_MITSHM=1
+      - ROS_DOMAIN_ID=0
+      - TERM=xterm-256color
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=all
+    extra_hosts:
+      - ${REPO}-dev:127.0.0.1
+    hostname: ${REPO}-dev
+    image: ${REPO}-dev:latest
+    network_mode: host
+    privileged: true
+    stdin_open: true
+    tty: true
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu, graphics, display]
+    volumes:
+      - ~/.ssh:${HOME}/.ssh:ro
+      - ~/.gitconfig:${HOME}/.gitconfig:ro
+      - ${PWD}:${HOME}/ws/src/stdr_simulator:rw
+      - ~/.${REPO}/ccache:${HOME}/.ccache
+      - /tmp/.X11-unix:/tmp/.X11-unix:ro
+      - /etc/group:/etc/group:ro
+      - /etc/passwd:/etc/passwd:ro
+      - /etc/shadow:/etc/shadow:ro
+      # Mount volumes for catkin build cache and artifacts
+      - ./.catkin/build:${HOME}/ws/build:rw
+      - ./.catkin/devel:${HOME}/ws/devel:rw
+      - ./.catkin/logs:${HOME}/ws/logs:rw
+    working_dir: ${HOME}/ws
