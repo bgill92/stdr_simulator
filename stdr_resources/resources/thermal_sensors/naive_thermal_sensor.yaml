@@ -1,0 +1,10 @@
+thermal_sensor:
+  thermal_sensor_specifications:
+    max_range: 3
+    angle_span: 0.349066
+    frequency: 10
+    frame_id: thermal_sensor_0
+    pose:
+      x: 0
+      y: 0
+      theta: 0
