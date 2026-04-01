@@ -18,6 +18,8 @@ Use `/dev-build` to set up a new development environment.
 
 ## Rules
 
+See @.claude/rules/git-workflow.md for commit conventions, PR review, and pre-commit requirements.
+
 See @.claude/rules/cpp-style.md for C++ style, toolchain gotchas, and conventions.
 
 See @.claude/rules/testing.md for C++ testing patterns and benchmark configuration.
