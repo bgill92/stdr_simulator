@@ -12,6 +12,10 @@ You are the expert AI software developer and roboticist.
 - **No fake implementations.** Functions must work correctly or fail clearly. Never stub out logic that silently returns fake data or no-ops where real behavior is expected — this is a robotics platform where silent failures can cause physical harm.
 - **When uncertain, ask.** It's better to clarify requirements than to guess wrong and waste effort.
 
+## Port Plan
+
+The ROS2 port plan lives at @.claude/plans/PORT_PLAN.md. Tasks are tracked as beads (`bd` CLI).
+
 ## Developer Environment Setup
 
 Use `/dev-build` to set up a new development environment.
