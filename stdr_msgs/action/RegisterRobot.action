@@ -1,7 +1,7 @@
-#goal definition
+# Goal
 string name
 ---
-#result definition
+# Result
 stdr_msgs/RobotMsg description
 ---
-#feedback
+# Feedback

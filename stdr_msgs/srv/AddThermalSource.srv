@@ -1,4 +1,4 @@
-stdr_msgs/ThermalSource newSource
+stdr_msgs/ThermalSource new_source
 ---
 bool success
 string message

@@ -1,5 +1,5 @@
-# Sensor measurement description
+# Thermal sensor measurement description
 
-Header header
+std_msgs/Header header
 
 float32[] thermal_source_degrees

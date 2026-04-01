@@ -1,4 +1,4 @@
-stdr_msgs/RfidTag newTag
+stdr_msgs/RfidTag new_tag
 ---
 bool success
 string message

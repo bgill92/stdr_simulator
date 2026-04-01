@@ -1,4 +1,4 @@
-stdr_msgs/CO2Source newSource
+stdr_msgs/CO2Source new_source
 ---
 bool success
 string message
