@@ -1,4 +1,4 @@
-stdr_msgs/SoundSource newSource
+stdr_msgs/SoundSource new_source
 ---
 bool success
 string message

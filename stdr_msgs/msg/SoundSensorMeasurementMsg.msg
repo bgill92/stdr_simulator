@@ -1,6 +1,5 @@
-# Sensor measurement description
-# All vectors must have the same size
+# Sound sensor measurement description
 
-Header header
+std_msgs/Header header
 
 float32 sound_dbs

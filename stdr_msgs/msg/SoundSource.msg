@@ -1,7 +1,7 @@
-# Source description
+# Sound source description
 
 string id
 float32 dbs
 
-# sensor pose, relative to the map origin
-geometry_msgs/Pose2D pose 
+# source pose, relative to the map origin
+geometry_msgs/Pose2D pose

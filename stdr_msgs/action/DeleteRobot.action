@@ -1,7 +1,7 @@
-#goal definition
+# Goal
 string name
 ---
-#result definition
+# Result
 bool success
 ---
-#feedback
+# Feedback
