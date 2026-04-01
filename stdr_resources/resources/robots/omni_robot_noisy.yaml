@@ -7,6 +7,8 @@ robot:
         x: 0
         y: 0
         theta: 0
+    - kinematic:
+        filename: kinematic_models/omni_kinematic_noisy.yaml
     - laser:
         filename: laser_sensors/hokuyo/hokuyo_URG_04LX.yaml
     - sonar:
@@ -44,5 +46,3 @@ robot:
             x: -0.1
             y: 0.1
             theta: 3.49065555555556
-    - kinematic:
-        filename: kinematic_models/ideal_kinematic.yaml

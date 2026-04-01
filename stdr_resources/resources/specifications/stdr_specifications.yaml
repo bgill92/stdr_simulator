@@ -1,0 +1,137 @@
+specifications:
+  environment:
+    allowed: [map, robot, rfid_tag]
+    required: [map]
+  map:
+    allowed: [filename, map_specifications]
+    required: [map_specifications]
+  map_specifications:
+    allowed: [image, resolution, origin, free_thresh, negate, occupied_thresh]
+    required: [image, resolution]
+  origin:
+    allowed: [x, y, theta]
+  robot:
+    allowed: [filename, robot_specifications]
+    required: [robot_specifications]
+  robot_specifications:
+    allowed: [initial_pose, footprint, laser, sonar, rfid_reader, kinematic]
+  initial_pose:
+    allowed: [x, y, theta]
+  pose:
+    allowed: [x, y, theta]
+  footprint:
+    allowed: [filename, footprint_specifications]
+    required: [footprint_specifications]
+  footprint_specifications:
+    allowed: [radius, points]
+  points:
+    allowed: [point]
+  point:
+    allowed: [x, y]
+    required: [x, y]
+  laser:
+    allowed: [filename, laser_specifications]
+    required: [laser_specifications]
+  laser_specifications:
+    allowed: [max_angle, min_angle, max_range, min_range, num_rays, frequency, frame_id, pose, noise]
+  noise:
+    allowed: [filename, noise_specifications]
+    required: [noise_specifications]
+  noise_specifications:
+    allowed: [noise_mean, noise_std]
+  sonar:
+    allowed: [filename, sonar_specifications]
+    required: [sonar_specifications]
+  sonar_specifications:
+    allowed: [cone_angle, max_range, min_range, frequency, frame_id, pose, noise]
+  rfid_reader:
+    allowed: [filename, rfid_reader_specifications]
+    required: [rfid_reader_specifications]
+  rfid_reader_specifications:
+    allowed: [angle_span, signal_cutoff, max_range, frequency, frame_id, pose]
+  co2_sensor:
+    allowed: [filename, co2_sensor_specifications]
+    required: [co2_sensor_specifications]
+  co2_sensor_specifications:
+    allowed: [max_range, frequency, frame_id, pose]
+  thermal_sensor:
+    allowed: [filename, thermal_sensor_specifications]
+    required: [thermal_sensor_specifications]
+  thermal_sensor_specifications:
+    allowed: [max_range, angle_span, frequency, frame_id, pose]
+  sound_sensor:
+    allowed: [filename, sound_sensor_specifications]
+    required: [sound_sensor_specifications]
+  sound_sensor_specifications:
+    allowed: [max_range, angle_span, frequency, frame_id, pose]
+  kinematic:
+    allowed: [filename, kinematic_specifications]
+    required: [kinematic_specifications]
+  kinematic_specifications:
+    allowed: [kinematic_model, kinematic_parameters]
+    required: [kinematic_model]
+  kinematic_parameters:
+    allowed: [a_ux_ux, a_ux_uy, a_ux_w, a_uy_ux, a_uy_uy, a_uy_w, a_w_ux, a_w_uy, a_w_w, a_g_ux, a_g_uy, a_g_w]
+    required: [a_ux_ux, a_ux_uy, a_ux_w, a_uy_ux, a_uy_uy, a_uy_w, a_w_ux, a_w_uy, a_w_w, a_g_ux, a_g_uy, a_g_w]
+  rfid_tag:
+    allowed: [x, y, message]
+    required: [x, y]
+  # Default values
+  x:
+    default: 0
+  y:
+    default: 0
+  theta:
+    default: 0
+  max_angle:
+    default: 1.57
+  min_angle:
+    default: -1.57
+  max_range:
+    default: 4
+  min_range:
+    default: 0
+  num_rays:
+    default: 180
+  frequency:
+    default: 10
+  frame_id:
+    default: ""
+  noise_mean:
+    default: 0
+  noise_std:
+    default: 0
+  angle_span:
+    default: 360.0
+  signal_cutoff:
+    default: 0.0
+  radius:
+    default: 0.3
+  cone_angle:
+    default: 1.0
+  kinematic_model:
+    default: ideal
+  a_ux_ux:
+    default: 0
+  a_ux_uy:
+    default: 0
+  a_ux_w:
+    default: 0
+  a_uy_ux:
+    default: 0
+  a_uy_uy:
+    default: 0
+  a_uy_w:
+    default: 0
+  a_w_ux:
+    default: 0
+  a_w_uy:
+    default: 0
+  a_w_w:
+    default: 0
+  a_g_ux:
+    default: 0
+  a_g_uy:
+    default: 0
+  a_g_w:
+    default: 0
