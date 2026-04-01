@@ -1,6 +1,8 @@
 # ROS #
 ######################
-build/
+/build/
+/install/
+/log/
 devel/
 bin/
 lib/

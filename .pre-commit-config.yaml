@@ -1,0 +1,104 @@
+# To use:
+#
+#     pre-commit run -a
+#
+# Or:
+#
+#     pre-commit install  # (runs every time you commit in git)
+#
+# To update this file:
+#
+#     pre-commit autoupdate
+#
+# See https://github.com/pre-commit/pre-commit
+# Don't lint vendored code from Doxygen theme or external dependencies in the example ws
+default_install_hook_types: [pre-commit, commit-msg, pre-push]
+default_stages: [pre-commit]
+repos:
+  # Standard hooks
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v3.4.0
+    hooks:
+      - id: check-ast
+      - id: check-case-conflict
+      - id: check-docstring-first
+      - id: check-merge-conflict
+      - id: check-symlinks
+      - id: check-yaml
+        args: ["--unsafe"] # Fixes errors parsing custom YAML constructors like ur_description's !degrees
+        # Exclude cookiecutter template files containing Jinja2 template syntax (e.g., {{ cookiecutter.variable }}, {%- if ... %})
+        # These files are templates that will be rendered by Jinja2, not valid YAML until processed
+      - id: debug-statements
+      - id: end-of-file-fixer
+        # Don't run the EOF check on docs markdown files because @davetcoleman doesn't want it
+        exclude: (\.patch|.(svg|stl|dae)|src/docs/.*\.mdx?)
+      - id: mixed-line-ending
+        exclude: ".patch"
+      - id: fix-byte-order-marker
+
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.3.0
+    hooks:
+      - id: ruff-format
+
+  - repo: https://github.com/pre-commit/mirrors-clang-format
+    rev: v14.0.6
+    hooks:
+      - id: clang-format
+        files: \.(c|cc|cxx|cpp|frag|glsl|h|hpp|hxx|ih|ispc|ipp|java|m|proto|vert)$
+        # -i arg is included by default by the hook
+        args: ["-fallback-style=none"]
+
+  - repo: https://github.com/adrienverge/yamllint
+    rev: v1.27.1
+    hooks:
+      - id: yamllint
+        args:
+          [
+            "--no-warnings",
+            "--config-data",
+            "{extends: default, rules: {line-length: disable, braces: {max-spaces-inside: 1}, indentation: disable, empty-lines: {max-end: 0, max-start: 1}}}",
+          ]
+        types: [text]
+        files: \.(yml|yaml)$
+        # Exclude cookiecutter template directories - contain Jinja2 template syntax ({{ }}, {% %}) not valid YAML until rendered
+        exclude: 'src/web/pnpm-lock.yaml|src/package_templates/.*/\{\{.*cookiecutter.*\}\}'
+
+  - repo: https://github.com/hadolint/hadolint
+    rev: v2.12.0
+    hooks:
+      - id: hadolint-docker
+
+  - repo: https://github.com/cheshirekow/cmake-format-precommit
+    rev: v0.6.10
+    hooks:
+      - id: cmake-format
+      - id: cmake-lint
+        args:
+          - "--disabled-codes=C0301" # Disable Line too long lint
+          - "--suppress-decorations"
+
+  - repo: https://github.com/igorshubovych/markdownlint-cli
+    rev: v0.41.0
+    hooks:
+      - id: markdownlint-fix
+        args:
+          # disable line-length cap which is gonna be a whole thing to unravel.
+          - "--disable=MD013"
+          # we need <br /> tags in markdown within tables
+          - "--disable=MD033"
+
+  - repo: local
+    hooks:
+      - id: pragma-once
+        name: pragma-once
+        entry: ./bin/scripts/check-pragma-once.sh
+        language: system
+        pass_filenames: false
+
+
+  - repo: https://github.com/commitizen-tools/commitizen
+    rev: v4.9.1
+    hooks:
+      - id: commitizen
+        stages: [commit-msg]
