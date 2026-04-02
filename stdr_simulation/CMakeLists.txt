@@ -9,6 +9,7 @@ add_library(${PROJECT_NAME}
   src/motion/noise_model.cpp
   src/motion/ideal_motion_model.cpp
   src/motion/omni_motion_model.cpp
+  src/sensors/laser_simulator.cpp
 )
 
 target_compile_features(${PROJECT_NAME} PUBLIC cxx_std_20)
