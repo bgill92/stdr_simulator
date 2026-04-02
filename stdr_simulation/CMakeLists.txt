@@ -57,6 +57,21 @@ if(BUILD_TESTING)
     FIXTURE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/test/fixtures"
   )
   target_link_libraries(test_config_loader ${PROJECT_NAME} GTest::gmock)
+
+  ament_add_gtest(test_collision_checker test/test_collision_checker.cpp)
+  target_link_libraries(test_collision_checker ${PROJECT_NAME} GTest::gmock)
+
+  ament_add_gtest(test_motion_models test/test_motion_models.cpp)
+  target_link_libraries(test_motion_models ${PROJECT_NAME} GTest::gmock)
+
+  ament_add_gtest(test_sensors test/test_sensors.cpp)
+  target_link_libraries(test_sensors ${PROJECT_NAME} GTest::gmock)
+
+  ament_add_gtest(test_world_model test/test_world_model.cpp)
+  target_link_libraries(test_world_model ${PROJECT_NAME} GTest::gmock)
+
+  ament_add_gtest(test_simulation_engine test/test_simulation_engine.cpp)
+  target_link_libraries(test_simulation_engine ${PROJECT_NAME} GTest::gmock)
 endif()
 
 ament_package()
