@@ -11,6 +11,10 @@ add_library(${PROJECT_NAME}
   src/motion/omni_motion_model.cpp
   src/sensors/laser_simulator.cpp
   src/sensors/sonar_simulator.cpp
+  src/sensors/rfid_simulator.cpp
+  src/sensors/co2_simulator.cpp
+  src/sensors/thermal_simulator.cpp
+  src/sensors/sound_simulator.cpp
 )
 
 target_compile_features(${PROJECT_NAME} PUBLIC cxx_std_20)
