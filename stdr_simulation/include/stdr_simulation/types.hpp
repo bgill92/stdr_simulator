@@ -202,6 +202,18 @@ struct OccupancyGrid {
   std::vector<std::int8_t> data;
 };
 
+/** Metadata parsed from a ROS-style map YAML file. The image_path is resolved
+ *  to an absolute path so the caller can load it without knowing the YAML's
+ *  directory. Image loading itself is left to the caller. */
+struct MapMetadata {
+  std::string image_path;
+  double resolution{0.0};
+  Pose2D origin;
+  double occupied_thresh{0.65};
+  double free_thresh{0.196};
+  bool negate{false};
+};
+
 /** Full configuration for a single simulated robot instance. */
 struct RobotConfig {
   Pose2D initial_pose;

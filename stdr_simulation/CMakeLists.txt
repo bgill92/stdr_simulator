@@ -5,6 +5,7 @@ find_package(ament_cmake REQUIRED)
 find_package(yaml-cpp REQUIRED)
 
 add_library(${PROJECT_NAME}
+  src/config_loader.cpp
   src/world/world_model.cpp
   src/collision/collision_checker.cpp
   src/motion/noise_model.cpp
@@ -43,5 +44,18 @@ install(
 
 ament_export_targets(${PROJECT_NAME}Targets HAS_LIBRARY_TARGET)
 ament_export_dependencies(yaml-cpp)
+
+if(BUILD_TESTING)
+  find_package(ament_cmake_gtest REQUIRED)
+  find_package(GTest REQUIRED)
+
+  ament_add_gtest(test_config_loader
+    test/test_config_loader.cpp
+  )
+  target_compile_definitions(test_config_loader PRIVATE
+    FIXTURE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/test/fixtures"
+  )
+  target_link_libraries(test_config_loader ${PROJECT_NAME} GTest::gmock)
+endif()
 
 ament_package()
