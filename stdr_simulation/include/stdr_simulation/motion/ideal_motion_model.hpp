@@ -1,18 +1,47 @@
 #pragma once
 
+/** @file Differential-drive motion model with velocity-dependent noise. */
+
+#include <stdr_simulation/types.hpp>
+
+#include <random>
+
 namespace stdr_simulation::motion {
 
 /**
- * @brief Ideal (noiseless) differential-drive motion model.
+ * @brief Differential-drive motion model with optional Gaussian velocity noise.
  *
- * Integrates a Twist2D command over a timestep using exact kinematics to
- * produce the next Pose2D. Intended as the reference model for testing and
- * as a base for noise-augmented variants.
- */
+ * Integrates a Twist2D command over a timestep using exact arc kinematics
+ * (Thrun et al., Probabilistic Robotics, Chapter 5).  Noise is sampled from
+ * the velocity-dependent model in noise_model.hpp; when all KinematicConfig
+ * alpha coefficients are zero the model is noiseless.
+ *
+ * @warning Not thread-safe — each thread should own its own instance because
+ *          the internal RNG is mutated on every call to update(). */
 class IdealMotionModel {
 public:
-  IdealMotionModel() = default;
+  IdealMotionModel();
   ~IdealMotionModel() = default;
+
+  /**
+   * @brief Propagate a pose forward by one timestep under a velocity command.
+   *
+   * @param current      The robot's current 2D pose.
+   * @param cmd          Commanded velocity (linear_y is ignored — non-holonomic).
+   * @param dt           Timestep in seconds.
+   * @param noise_params KinematicConfig encoding the alpha noise coefficients.
+   * @return             The predicted next pose.
+   */
+  [[nodiscard]] Pose2D update(
+      const Pose2D& current,
+      const Twist2D& cmd,
+      double dt,
+      const KinematicConfig& noise_params) const;
+
+private:
+  // Mutable because the RNG is internal implementation state, not observable
+  // robot state — callers see a logically const model.
+  mutable std::mt19937 rng_;
 };
 
 }  // namespace stdr_simulation::motion
