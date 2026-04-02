@@ -5,6 +5,7 @@ find_package(ament_cmake REQUIRED)
 find_package(yaml-cpp REQUIRED)
 
 add_library(${PROJECT_NAME}
+  src/world/world_model.cpp
   src/collision/collision_checker.cpp
   src/motion/noise_model.cpp
   src/motion/ideal_motion_model.cpp
