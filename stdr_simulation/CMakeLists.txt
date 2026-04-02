@@ -5,11 +5,19 @@ find_package(ament_cmake REQUIRED)
 find_package(yaml-cpp REQUIRED)
 
 add_library(${PROJECT_NAME}
+  src/simulation_engine.cpp
+  src/config_loader.cpp
+  src/world/world_model.cpp
   src/collision/collision_checker.cpp
   src/motion/noise_model.cpp
   src/motion/ideal_motion_model.cpp
   src/motion/omni_motion_model.cpp
   src/sensors/laser_simulator.cpp
+  src/sensors/sonar_simulator.cpp
+  src/sensors/rfid_simulator.cpp
+  src/sensors/co2_simulator.cpp
+  src/sensors/thermal_simulator.cpp
+  src/sensors/sound_simulator.cpp
 )
 
 target_compile_features(${PROJECT_NAME} PUBLIC cxx_std_20)
@@ -37,5 +45,33 @@ install(
 
 ament_export_targets(${PROJECT_NAME}Targets HAS_LIBRARY_TARGET)
 ament_export_dependencies(yaml-cpp)
+
+if(BUILD_TESTING)
+  find_package(ament_cmake_gtest REQUIRED)
+  find_package(GTest REQUIRED)
+
+  ament_add_gtest(test_config_loader
+    test/test_config_loader.cpp
+  )
+  target_compile_definitions(test_config_loader PRIVATE
+    FIXTURE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/test/fixtures"
+  )
+  target_link_libraries(test_config_loader ${PROJECT_NAME} GTest::gmock)
+
+  ament_add_gtest(test_collision_checker test/test_collision_checker.cpp)
+  target_link_libraries(test_collision_checker ${PROJECT_NAME} GTest::gmock)
+
+  ament_add_gtest(test_motion_models test/test_motion_models.cpp)
+  target_link_libraries(test_motion_models ${PROJECT_NAME} GTest::gmock)
+
+  ament_add_gtest(test_sensors test/test_sensors.cpp)
+  target_link_libraries(test_sensors ${PROJECT_NAME} GTest::gmock)
+
+  ament_add_gtest(test_world_model test/test_world_model.cpp)
+  target_link_libraries(test_world_model ${PROJECT_NAME} GTest::gmock)
+
+  ament_add_gtest(test_simulation_engine test/test_simulation_engine.cpp)
+  target_link_libraries(test_simulation_engine ${PROJECT_NAME} GTest::gmock)
+endif()
 
 ament_package()
