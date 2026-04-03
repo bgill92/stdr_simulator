@@ -3,13 +3,16 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
+#include <tl_expected/expected.hpp>
+
 #include <filesystem>
 #include <fstream>
-#include <optional>
 #include <string>
 
-namespace stdr_simulation {
-namespace {
+namespace stdr_simulation
+{
+namespace
+{
 
 // Resolves a fixture path relative to this test file's source directory.
 // The CMakeLists.txt sets FIXTURE_DIR at compile time.
@@ -22,7 +25,7 @@ std::string fixture(const std::string& name)
 
 TEST(LoadMapMetadata, ValidMapReturnsMetadata)
 {
-  const std::optional<MapMetadata> meta = load_map_metadata(fixture("test_map.yaml"));
+  const tl::expected<MapMetadata, std::string> meta = load_map_metadata(fixture("test_map.yaml"));
   ASSERT_TRUE(meta.has_value());
   EXPECT_DOUBLE_EQ(meta->resolution, 0.02);
   EXPECT_DOUBLE_EQ(meta->origin.x, 0.0);
@@ -35,20 +38,21 @@ TEST(LoadMapMetadata, ValidMapReturnsMetadata)
 
 TEST(LoadMapMetadata, ImagePathIsResolved)
 {
-  const std::optional<MapMetadata> meta = load_map_metadata(fixture("test_map.yaml"));
+  const tl::expected<MapMetadata, std::string> meta = load_map_metadata(fixture("test_map.yaml"));
   ASSERT_TRUE(meta.has_value());
   // The image path must be absolute and contain the fixture directory.
   EXPECT_TRUE(std::filesystem::path(meta->image_path).is_absolute());
   EXPECT_NE(meta->image_path.find("sparse_obstacles.png"), std::string::npos);
 }
 
-TEST(LoadMapMetadata, MissingFileReturnsNullopt)
+TEST(LoadMapMetadata, MissingFileReturnsError)
 {
-  const std::optional<MapMetadata> meta = load_map_metadata("/nonexistent/path/map.yaml");
+  const tl::expected<MapMetadata, std::string> meta = load_map_metadata("/nonexistent/path/map.yaml");
   EXPECT_FALSE(meta.has_value());
+  EXPECT_FALSE(meta.error().empty());
 }
 
-TEST(LoadMapMetadata, MissingImageKeyReturnsNullopt)
+TEST(LoadMapMetadata, MissingImageKeyReturnsError)
 {
   // Write a temp YAML without the image key.
   const std::string tmp = "/tmp/map_no_image.yaml";
@@ -56,19 +60,21 @@ TEST(LoadMapMetadata, MissingImageKeyReturnsNullopt)
     std::ofstream f(tmp);
     f << "resolution: 0.05\norigin: [0, 0, 0]\n";
   }
-  const std::optional<MapMetadata> meta = load_map_metadata(tmp);
+  const tl::expected<MapMetadata, std::string> meta = load_map_metadata(tmp);
   EXPECT_FALSE(meta.has_value());
+  EXPECT_FALSE(meta.error().empty());
 }
 
-TEST(LoadMapMetadata, MissingResolutionKeyReturnsNullopt)
+TEST(LoadMapMetadata, MissingResolutionKeyReturnsError)
 {
   const std::string tmp = "/tmp/map_no_resolution.yaml";
   {
     std::ofstream f(tmp);
     f << "image: map.png\norigin: [0, 0, 0]\n";
   }
-  const std::optional<MapMetadata> meta = load_map_metadata(tmp);
+  const tl::expected<MapMetadata, std::string> meta = load_map_metadata(tmp);
   EXPECT_FALSE(meta.has_value());
+  EXPECT_FALSE(meta.error().empty());
 }
 
 TEST(LoadMapMetadata, NegateOneIsTrue)
@@ -78,7 +84,7 @@ TEST(LoadMapMetadata, NegateOneIsTrue)
     std::ofstream f(tmp);
     f << "image: map.png\nresolution: 0.05\nnegate: 1\n";
   }
-  const std::optional<MapMetadata> meta = load_map_metadata(tmp);
+  const tl::expected<MapMetadata, std::string> meta = load_map_metadata(tmp);
   ASSERT_TRUE(meta.has_value());
   EXPECT_TRUE(meta->negate);
 }
@@ -90,7 +96,7 @@ TEST(LoadMapMetadata, DefaultThresholdsWhenAbsent)
     std::ofstream f(tmp);
     f << "image: map.png\nresolution: 0.05\n";
   }
-  const std::optional<MapMetadata> meta = load_map_metadata(tmp);
+  const tl::expected<MapMetadata, std::string> meta = load_map_metadata(tmp);
   ASSERT_TRUE(meta.has_value());
   // Defaults from struct definition.
   EXPECT_DOUBLE_EQ(meta->occupied_thresh, 0.65);
@@ -101,8 +107,8 @@ TEST(LoadMapMetadata, DefaultThresholdsWhenAbsent)
 
 TEST(LoadRobotConfig, SimpleRobotParsesInitialPose)
 {
-  const std::optional<RobotConfig> config =
-    load_robot_config(fixture("simple_robot.yaml"), std::string(FIXTURE_DIR));
+  const tl::expected<RobotConfig, std::string> config =
+      load_robot_config(fixture("simple_robot.yaml"), std::string(FIXTURE_DIR));
   ASSERT_TRUE(config.has_value());
   EXPECT_DOUBLE_EQ(config->initial_pose.x, 3.0);
   EXPECT_DOUBLE_EQ(config->initial_pose.y, 2.0);
@@ -111,16 +117,16 @@ TEST(LoadRobotConfig, SimpleRobotParsesInitialPose)
 
 TEST(LoadRobotConfig, SimpleRobotParsesFootprintRadius)
 {
-  const std::optional<RobotConfig> config =
-    load_robot_config(fixture("simple_robot.yaml"), std::string(FIXTURE_DIR));
+  const tl::expected<RobotConfig, std::string> config =
+      load_robot_config(fixture("simple_robot.yaml"), std::string(FIXTURE_DIR));
   ASSERT_TRUE(config.has_value());
   EXPECT_DOUBLE_EQ(config->footprint.radius, 0.05);
 }
 
 TEST(LoadRobotConfig, SimpleRobotLoadsLaserFromFile)
 {
-  const std::optional<RobotConfig> config =
-    load_robot_config(fixture("simple_robot.yaml"), std::string(FIXTURE_DIR));
+  const tl::expected<RobotConfig, std::string> config =
+      load_robot_config(fixture("simple_robot.yaml"), std::string(FIXTURE_DIR));
   ASSERT_TRUE(config.has_value());
   ASSERT_THAT(config->laser_sensors, testing::SizeIs(1));
   // These come from the external laser file.
@@ -131,8 +137,8 @@ TEST(LoadRobotConfig, SimpleRobotLoadsLaserFromFile)
 
 TEST(LoadRobotConfig, SimpleRobotInlinePoseOverridesFilepose)
 {
-  const std::optional<RobotConfig> config =
-    load_robot_config(fixture("simple_robot.yaml"), std::string(FIXTURE_DIR));
+  const tl::expected<RobotConfig, std::string> config =
+      load_robot_config(fixture("simple_robot.yaml"), std::string(FIXTURE_DIR));
   ASSERT_TRUE(config.has_value());
   ASSERT_THAT(config->laser_sensors, testing::SizeIs(1));
   // The inline laser_specifications overrides pose.theta to -3.1415.
@@ -141,16 +147,16 @@ TEST(LoadRobotConfig, SimpleRobotInlinePoseOverridesFilepose)
 
 TEST(LoadRobotConfig, SimpleRobotLoadsKinematic)
 {
-  const std::optional<RobotConfig> config =
-    load_robot_config(fixture("simple_robot.yaml"), std::string(FIXTURE_DIR));
+  const tl::expected<RobotConfig, std::string> config =
+      load_robot_config(fixture("simple_robot.yaml"), std::string(FIXTURE_DIR));
   ASSERT_TRUE(config.has_value());
   EXPECT_EQ(config->kinematic_model.type, "ideal");
 }
 
 TEST(LoadRobotConfig, InlineOnlyLaserAndKinematic)
 {
-  const std::optional<RobotConfig> config =
-    load_robot_config(fixture("robot_inline_only.yaml"), std::string(FIXTURE_DIR));
+  const tl::expected<RobotConfig, std::string> config =
+      load_robot_config(fixture("robot_inline_only.yaml"), std::string(FIXTURE_DIR));
   ASSERT_TRUE(config.has_value());
   ASSERT_THAT(config->laser_sensors, testing::SizeIs(1));
   EXPECT_DOUBLE_EQ(config->laser_sensors[0].max_range, 8.0);
@@ -159,8 +165,8 @@ TEST(LoadRobotConfig, InlineOnlyLaserAndKinematic)
 
 TEST(LoadRobotConfig, LaserNoiseLoadedFromFile)
 {
-  const std::optional<RobotConfig> config =
-    load_robot_config(fixture("simple_robot.yaml"), std::string(FIXTURE_DIR));
+  const tl::expected<RobotConfig, std::string> config =
+      load_robot_config(fixture("simple_robot.yaml"), std::string(FIXTURE_DIR));
   ASSERT_TRUE(config.has_value());
   ASSERT_THAT(config->laser_sensors, testing::SizeIs(1));
   EXPECT_TRUE(config->laser_sensors[0].noise.enabled);
@@ -168,25 +174,26 @@ TEST(LoadRobotConfig, LaserNoiseLoadedFromFile)
   EXPECT_DOUBLE_EQ(config->laser_sensors[0].noise.std_dev, 0.05);
 }
 
-TEST(LoadRobotConfig, MissingFileReturnsNullopt)
+TEST(LoadRobotConfig, MissingFileReturnsError)
 {
-  const std::optional<RobotConfig> config =
-    load_robot_config("/nonexistent/robot.yaml", "/nonexistent");
+  const tl::expected<RobotConfig, std::string> config = load_robot_config("/nonexistent/robot.yaml", "/nonexistent");
   EXPECT_FALSE(config.has_value());
+  EXPECT_FALSE(config.error().empty());
 }
 
-TEST(LoadRobotConfig, MissingRobotSpecificationsReturnsNullopt)
+TEST(LoadRobotConfig, MissingRobotSpecificationsReturnsError)
 {
   const std::string tmp = "/tmp/robot_bad.yaml";
   {
     std::ofstream f(tmp);
     f << "not_a_robot: true\n";
   }
-  const std::optional<RobotConfig> config = load_robot_config(tmp, "/tmp");
+  const tl::expected<RobotConfig, std::string> config = load_robot_config(tmp, "/tmp");
   EXPECT_FALSE(config.has_value());
+  EXPECT_FALSE(config.error().empty());
 }
 
-TEST(LoadRobotConfig, BadSensorFilenameReturnsNullopt)
+TEST(LoadRobotConfig, BadSensorFilenameReturnsError)
 {
   const std::string tmp = "/tmp/robot_bad_sensor.yaml";
   {
@@ -196,8 +203,9 @@ TEST(LoadRobotConfig, BadSensorFilenameReturnsNullopt)
          "    - laser:\n"
          "        filename: nonexistent_laser.yaml\n";
   }
-  const std::optional<RobotConfig> config = load_robot_config(tmp, "/tmp");
+  const tl::expected<RobotConfig, std::string> config = load_robot_config(tmp, "/tmp");
   EXPECT_FALSE(config.has_value());
+  EXPECT_FALSE(config.error().empty());
 }
 
 }  // namespace

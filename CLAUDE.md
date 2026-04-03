@@ -41,6 +41,7 @@ Skills are slash-command shortcuts defined in `.claude/skills/`. Use `/skill-nam
 - **`/build`** — Build the code in the the pixi environment.
 - **`/test`** — Build and run tests for in the pixi environment.
 - **`/review`** — Review recent code changes against coding standards.
+- **`/tdd`** — Test-driven development with red-green-refactor loop. Use for building features or fixing bugs test-first.
 
 ## Unfinished Work
 

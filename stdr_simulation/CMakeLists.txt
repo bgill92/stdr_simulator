@@ -3,8 +3,10 @@ project(stdr_simulation)
 
 find_package(ament_cmake REQUIRED)
 find_package(yaml-cpp REQUIRED)
+find_package(tl_expected REQUIRED)
 
-add_library(${PROJECT_NAME}
+add_library(
+  ${PROJECT_NAME}
   src/simulation_engine.cpp
   src/config_loader.cpp
   src/world/world_model.cpp
@@ -17,45 +19,38 @@ add_library(${PROJECT_NAME}
   src/sensors/rfid_simulator.cpp
   src/sensors/co2_simulator.cpp
   src/sensors/thermal_simulator.cpp
-  src/sensors/sound_simulator.cpp
-)
+  src/sensors/sound_simulator.cpp)
 
 target_compile_features(${PROJECT_NAME} PUBLIC cxx_std_20)
 set_target_properties(${PROJECT_NAME} PROPERTIES CXX_EXTENSIONS OFF)
 
-target_include_directories(${PROJECT_NAME} PUBLIC
-  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
-  $<INSTALL_INTERFACE:include>
-)
+target_include_directories(
+  ${PROJECT_NAME} PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+                         $<INSTALL_INTERFACE:include>)
 
-target_link_libraries(${PROJECT_NAME} PUBLIC yaml-cpp::yaml-cpp)
+target_link_libraries(${PROJECT_NAME} PUBLIC yaml-cpp::yaml-cpp
+                                             tl_expected::tl_expected)
 
-install(
-  DIRECTORY include/
-  DESTINATION include
-)
+install(DIRECTORY include/ DESTINATION include)
 
 install(
   TARGETS ${PROJECT_NAME}
   EXPORT ${PROJECT_NAME}Targets
   ARCHIVE DESTINATION lib
   LIBRARY DESTINATION lib
-  RUNTIME DESTINATION bin
-)
+  RUNTIME DESTINATION bin)
 
 ament_export_targets(${PROJECT_NAME}Targets HAS_LIBRARY_TARGET)
-ament_export_dependencies(yaml-cpp)
+ament_export_dependencies(yaml-cpp tl_expected)
 
 if(BUILD_TESTING)
   find_package(ament_cmake_gtest REQUIRED)
   find_package(GTest REQUIRED)
 
-  ament_add_gtest(test_config_loader
-    test/test_config_loader.cpp
-  )
-  target_compile_definitions(test_config_loader PRIVATE
-    FIXTURE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/test/fixtures"
-  )
+  ament_add_gtest(test_config_loader test/test_config_loader.cpp)
+  target_compile_definitions(
+    test_config_loader
+    PRIVATE FIXTURE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/test/fixtures")
   target_link_libraries(test_config_loader ${PROJECT_NAME} GTest::gmock)
 
   ament_add_gtest(test_collision_checker test/test_collision_checker.cpp)
