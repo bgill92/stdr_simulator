@@ -1,0 +1,11 @@
+robot:
+  robot_specifications:
+    - footprint:
+        footprint_specifications:
+          radius: 0.1
+    - laser:
+        laser_specifications:
+          max_range: 4.0
+    - laser:
+        laser_specifications:
+          max_range: 8.0

@@ -1,0 +1,18 @@
+robot:
+  robot_specifications:
+    - footprint:
+        footprint_specifications:
+          radius: 0.05
+    - initial_pose:
+        x: 1.0
+        y: 2.0
+        theta: 0.0
+    - laser:
+        laser_specifications:
+          max_range: 4.0
+          min_range: 0.1
+          num_rays: 180
+          frequency: 10
+    - kinematic:
+        kinematic_specifications:
+          kinematic_model: ideal

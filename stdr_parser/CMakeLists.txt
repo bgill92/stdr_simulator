@@ -1,71 +1,75 @@
 cmake_minimum_required(VERSION 3.16)
 project(stdr_parser)
 
-find_package(catkin REQUIRED COMPONENTS
-  roscpp
-  roslib
-  stdr_msgs
-  cmake_modules
+find_package(ament_cmake REQUIRED)
+find_package(yaml-cpp REQUIRED)
+find_package(tl_expected REQUIRED)
+find_package(stdr_simulation REQUIRED)
+find_package(stdr_msgs REQUIRED)
+find_package(geometry_msgs REQUIRED)
+find_package(ament_index_cpp REQUIRED)
+find_package(rosidl_default_runtime REQUIRED)
+
+add_library(${PROJECT_NAME}
+  src/msg_conversions.cpp
+  src/yaml_validator.cpp
+  src/yaml_writer.cpp
+  src/resource_resolver.cpp
+  src/parser.cpp
 )
 
-set(CMAKE_BUILD_TYPE Release)
+target_compile_features(${PROJECT_NAME} PUBLIC cxx_std_20)
+set_target_properties(${PROJECT_NAME} PROPERTIES CXX_EXTENSIONS OFF)
 
-find_package(PkgConfig)
-pkg_check_modules(NEW_YAMLCPP yaml-cpp>=0.5)
-pkg_check_modules(XML libxml-2.0)
-if(NEW_YAMLCPP_FOUND)
-  add_definitions(-DHAVE_NEW_YAMLCPP)
-endif(NEW_YAMLCPP_FOUND)
+target_include_directories(
+  ${PROJECT_NAME} PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+                         $<INSTALL_INTERFACE:include>)
 
-
-include_directories(
-  include
-  ${catkin_INCLUDE_DIRS}
-  ${TinyXML_INCLUDE_DIRS}
+target_link_libraries(${PROJECT_NAME} PUBLIC
+  yaml-cpp::yaml-cpp
+  tl_expected::tl_expected
+  stdr_simulation::stdr_simulation
+  ${stdr_msgs_TARGETS__rosidl_typesupport_cpp}
+  ${geometry_msgs_TARGETS}
+  ament_index_cpp::ament_index_cpp
 )
 
-find_package(TinyXML REQUIRED)
+install(DIRECTORY include/ DESTINATION include)
 
-catkin_package(
-  INCLUDE_DIRS 
-    include
-  LIBRARIES
-    stdr_parser
-  CATKIN_DEPENDS
-    roscpp
-    roslib
-    stdr_msgs
-  DEPENDS
-    TinyXML
-)
+install(
+  TARGETS ${PROJECT_NAME}
+  EXPORT ${PROJECT_NAME}Targets
+  ARCHIVE DESTINATION lib
+  LIBRARY DESTINATION lib
+  RUNTIME DESTINATION bin)
 
-######################### Stdr parser ##################################
-add_library(stdr_parser 
-  src/stdr_parser.cpp
-  src/stdr_parser_validator.cpp
-  src/stdr_parser_msg_creator.cpp
-  src/stdr_parser_xml_file_writer.cpp
-  src/stdr_parser_yaml_file_writer.cpp
-  src/stdr_xml_parser.cpp
-  src/stdr_yaml_parser.cpp
-  src/stdr_parser_node.cpp
-  src/stdr_parser_specs.cpp
-  src/stdr_parser_tools.cpp
-)
-add_dependencies(stdr_parser ${stdr_msgs_EXPORTED_TARGETS}) # wait for stdr_msgs to be build
-target_link_libraries(stdr_parser 
-  ${catkin_LIBRARIES} ${TinyXML_LIBRARIES}
-  yaml-cpp
-)
+ament_export_targets(${PROJECT_NAME}Targets HAS_LIBRARY_TARGET)
+ament_export_dependencies(yaml-cpp tl_expected stdr_simulation stdr_msgs geometry_msgs ament_index_cpp rosidl_default_runtime)
 
-install(TARGETS 
-  stdr_parser
-  DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
-  LIBRARY DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
-)
+if(BUILD_TESTING)
+  find_package(ament_cmake_gtest REQUIRED)
+  find_package(GTest REQUIRED)
 
-# Install headers
-install(DIRECTORY include/${PROJECT_NAME}/
-  DESTINATION ${CATKIN_PACKAGE_INCLUDE_DESTINATION}
-  FILES_MATCHING PATTERN "*.h"
-)
+  ament_add_gtest(test_msg_conversions test/test_msg_conversions.cpp)
+  target_link_libraries(test_msg_conversions ${PROJECT_NAME} GTest::gmock)
+
+  ament_add_gtest(test_yaml_validator test/test_yaml_validator.cpp)
+  target_compile_definitions(test_yaml_validator PRIVATE
+    FIXTURE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/test/fixtures"
+  )
+  target_link_libraries(test_yaml_validator ${PROJECT_NAME} GTest::gmock)
+
+  ament_add_gtest(test_yaml_writer test/test_yaml_writer.cpp)
+  target_compile_definitions(test_yaml_writer PRIVATE
+    FIXTURE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/test/fixtures"
+  )
+  target_link_libraries(test_yaml_writer ${PROJECT_NAME} GTest::gmock)
+
+  ament_add_gtest(test_parser test/test_parser.cpp)
+  target_compile_definitions(test_parser PRIVATE
+    FIXTURE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/test/fixtures"
+  )
+  target_link_libraries(test_parser ${PROJECT_NAME} GTest::gmock)
+endif()
+
+ament_package()
