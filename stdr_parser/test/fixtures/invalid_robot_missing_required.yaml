@@ -1,0 +1,4 @@
+robot:
+  robot_specifications:
+    - laser:
+        max_range: 4.0
