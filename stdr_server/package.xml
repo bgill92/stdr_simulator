@@ -1,33 +1,31 @@
 <?xml version="1.0"?>
-<package format="2">
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
   <name>stdr_server</name>
-  <version>0.3.2</version>
-  <description>Implements synchronization and coordination functionalities of STDR Simulator.</description>
+  <version>1.0.0</version>
+  <description>Central ROS2 server node for the STDR Simulator. Manages the world model, robot lifecycle, map loading, and environment sources.</description>
 
-  <maintainer email="zalidis@gmail.com">Chris Zalidis</maintainer>
+  <maintainer email="bilal@todo.com">Bilal Gill</maintainer>
+  <license>GPL-3.0-only</license>
 
-  <license>GPLv3</license>
+  <buildtool_depend>ament_cmake</buildtool_depend>
 
-  <url type="website">http://stdr-simulator-ros-pkg.github.io</url>
-  <url type="bugtracker">https://github.com/stdr-simulator-ros-pkg/stdr_simulator/issues</url>
-  <url type="repository">https://github.com/stdr-simulator-ros-pkg/stdr_simulator</url>
-
-  <author>Chris Zalidis</author>
-
-  <buildtool_depend>catkin</buildtool_depend>
-
-  <depend>roscpp</depend>
-  <depend>tf</depend>
+  <depend>rclcpp</depend>
+  <depend>rclcpp_action</depend>
+  <depend>rclcpp_components</depend>
   <depend>nav_msgs</depend>
-  <depend>stdr_msgs</depend>
-  <depend>actionlib</depend>
-  <depend>nodelet</depend>
-  <depend>map_server</depend>
-  <depend>yaml-cpp</depend>
+  <depend>geometry_msgs</depend>
+  <depend>tf2_ros</depend>
   <depend>visualization_msgs</depend>
+  <depend>stdr_msgs</depend>
+  <depend>stdr_simulation</depend>
+  <depend>stdr_parser</depend>
+  <depend>tl_expected</depend>
+  <exec_depend>rosidl_default_runtime</exec_depend>
 
-  <test_depend>rostest</test_depend>
+  <test_depend>ament_cmake_gtest</test_depend>
 
   <export>
+    <build_type>ament_cmake</build_type>
   </export>
 </package>

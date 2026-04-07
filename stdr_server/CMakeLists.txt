@@ -1,97 +1,85 @@
 cmake_minimum_required(VERSION 3.16)
 project(stdr_server)
 
-find_package(catkin REQUIRED COMPONENTS
-    roscpp
-    tf
-    nav_msgs
-    stdr_msgs
-    actionlib
-    nodelet
-    map_server
-    visualization_msgs
-)
+find_package(ament_cmake REQUIRED)
+find_package(rclcpp REQUIRED)
+find_package(rclcpp_action REQUIRED)
+find_package(rclcpp_components REQUIRED)
+find_package(nav_msgs REQUIRED)
+find_package(geometry_msgs REQUIRED)
+find_package(tf2_ros REQUIRED)
+find_package(visualization_msgs REQUIRED)
+find_package(stdr_msgs REQUIRED)
+find_package(stdr_simulation REQUIRED)
+find_package(stdr_parser REQUIRED)
+find_package(tl_expected REQUIRED)
+find_package(PNG REQUIRED)
+find_package(rosidl_default_runtime REQUIRED)
 
-set(CMAKE_BUILD_TYPE Release)
+add_library(${PROJECT_NAME} src/map_loader.cpp src/stdr_server_node.cpp)
 
-find_package(PkgConfig)
-pkg_check_modules(NEW_YAMLCPP yaml-cpp>=0.5)
-if(NEW_YAMLCPP_FOUND)
-add_definitions(-DHAVE_NEW_YAMLCPP)
-endif(NEW_YAMLCPP_FOUND)
+target_compile_features(${PROJECT_NAME} PUBLIC cxx_std_20)
+set_target_properties(${PROJECT_NAME} PROPERTIES CXX_EXTENSIONS OFF)
 
-catkin_package(
-  INCLUDE_DIRS
-    include
-  LIBRARIES
-    stdr_map_loader
-  CATKIN_DEPENDS
-    roscpp
-    tf
-    nav_msgs
-    stdr_msgs
-    actionlib
-    nodelet
-    map_server
-    visualization_msgs
-)
+target_include_directories(
+  ${PROJECT_NAME} PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+                         $<INSTALL_INTERFACE:include>)
 
-link_directories(${catkin_LIBRARY_DIRS})
-include_directories( include ${catkin_INCLUDE_DIRS})
+target_link_libraries(
+  ${PROJECT_NAME}
+  PUBLIC rclcpp::rclcpp
+         ${rclcpp_action_TARGETS}
+         ${rclcpp_components_TARGETS}
+         ${nav_msgs_TARGETS}
+         ${geometry_msgs_TARGETS}
+         tf2_ros::tf2_ros
+         ${visualization_msgs_TARGETS}
+         ${stdr_msgs_TARGETS__rosidl_typesupport_cpp}
+         stdr_simulation::stdr_simulation
+         stdr_parser::stdr_parser
+         tl_expected::tl_expected)
 
-add_library(stdr_map_loader src/map_loader.cpp)
-target_link_libraries(stdr_map_loader
-    yaml-cpp
-    ${catkin_LIBRARIES}
-)
+target_link_libraries(${PROJECT_NAME} PRIVATE PNG::PNG)
 
-add_library(stdr_map_server src/map_server.cpp)
-target_link_libraries(stdr_map_server
-    stdr_map_loader
-    ${catkin_LIBRARIES}
-)
+# Standalone server executable
+add_executable(stdr_server_node src/main.cpp)
+target_link_libraries(stdr_server_node PRIVATE ${PROJECT_NAME})
 
-add_library(stdr_server src/stdr_server.cpp)
-add_dependencies(stdr_server ${stdr_msgs_EXPORTED_TARGETS}) # wait for stdr_msgs to be build
-target_link_libraries(stdr_server
-  stdr_map_server
-  ${catkin_LIBRARIES}
-)
+install(DIRECTORY include/ DESTINATION include)
 
-add_executable(stdr_server_node src/stdr_server_node.cpp)
-target_link_libraries(stdr_server_node
-  stdr_server
-  ${catkin_LIBRARIES}
-)
+install(
+  TARGETS ${PROJECT_NAME}
+  EXPORT ${PROJECT_NAME}Targets
+  ARCHIVE DESTINATION lib
+  LIBRARY DESTINATION lib
+  RUNTIME DESTINATION bin)
 
-add_executable(load_map src/map_loader_node.cpp)
-add_dependencies(load_map ${stdr_msgs_EXPORTED_TARGETS}) # wait for stdr_msgs to be build
-target_link_libraries(load_map
-  stdr_map_loader
-  ${catkin_LIBRARIES}
-)
+install(TARGETS stdr_server_node DESTINATION lib/${PROJECT_NAME})
 
-# Testing
-if(CATKIN_ENABLE_TESTING)
-  add_subdirectory(test)
+ament_export_targets(${PROJECT_NAME}Targets HAS_LIBRARY_TARGET)
+ament_export_dependencies(
+  rclcpp
+  rclcpp_action
+  rclcpp_components
+  nav_msgs
+  geometry_msgs
+  tf2_ros
+  visualization_msgs
+  stdr_msgs
+  stdr_simulation
+  stdr_parser
+  tl_expected
+  rosidl_default_runtime)
+
+if(BUILD_TESTING)
+  find_package(ament_cmake_gtest REQUIRED)
+  find_package(GTest REQUIRED)
+
+  ament_add_gtest(test_map_loader test/test_map_loader.cpp)
+  target_link_libraries(test_map_loader ${PROJECT_NAME} GTest::gmock)
+
+  ament_add_gtest(test_server_node test/test_server_node.cpp)
+  target_link_libraries(test_server_node ${PROJECT_NAME} GTest::gmock)
 endif()
 
-# Install libraries
-install(TARGETS
-    stdr_map_loader
-    stdr_map_server
-    stdr_server
-  DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
-  LIBRARY DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
-)
-
-# Install excecutables
-install(TARGETS
-    stdr_server_node
-    load_map
-  RUNTIME DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
-)
-
-install(FILES include/${PROJECT_NAME}/map_loader.h
-  DESTINATION ${CATKIN_PACKAGE_INCLUDE_DESTINATION}
-)
+ament_package()
