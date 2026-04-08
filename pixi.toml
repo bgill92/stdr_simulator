@@ -48,3 +48,4 @@ build = "colcon build --symlink-install --cmake-args -DCMAKE_BUILD_TYPE=RelWithD
 test = { cmd = "colcon test --event-handlers console_direct+", depends-on = ["build"] }
 clean = "rm -rf build install log"
 lint = "pre-commit run -a"
+standalone = { cmd = "install/stdr_standalone/lib/stdr_standalone/stdr_standalone_exe", depends-on = ["build"] }
