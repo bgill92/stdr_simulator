@@ -6,6 +6,18 @@
 namespace stdr_gui
 {
 
+/** @brief Result of listing a directory for YAML files. */
+struct DirectoryListing
+{
+  std::vector<std::string> directories;
+  std::vector<std::string> yaml_files;
+};
+
+/** @brief List directories and YAML files (.yaml, .yml) in the given path.
+ *
+ *  Results are sorted alphabetically. Returns empty lists on error. */
+[[nodiscard]] DirectoryListing list_yaml_directory(const std::string& path);
+
 /** @brief Reason the file dialog was opened. */
 enum class FileDialogPurpose
 {

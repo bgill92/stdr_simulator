@@ -128,34 +128,40 @@ bool FileDialog::is_open() const
   return open_;
 }
 
-void FileDialog::refresh_entries()
+DirectoryListing list_yaml_directory(const std::string& path)
 {
-  dir_entries_.clear();
-  file_entries_.clear();
-
+  DirectoryListing result;
   std::error_code ec;
-  for (const std::filesystem::directory_entry& entry : std::filesystem::directory_iterator(current_dir_, ec))
+  const std::filesystem::directory_iterator it(path, ec);
+  if (ec)
   {
-    if (ec)
-    {
-      break;
-    }
+    return result;
+  }
+  for (const std::filesystem::directory_entry& entry : it)
+  {
     if (entry.is_directory())
     {
-      dir_entries_.push_back(entry.path().filename().string());
+      result.directories.push_back(entry.path().filename().string());
     }
     else if (entry.is_regular_file())
     {
       const std::string ext = entry.path().extension().string();
       if (ext == ".yaml" || ext == ".yml")
       {
-        file_entries_.push_back(entry.path().filename().string());
+        result.yaml_files.push_back(entry.path().filename().string());
       }
     }
   }
+  std::ranges::sort(result.directories);
+  std::ranges::sort(result.yaml_files);
+  return result;
+}
 
-  std::ranges::sort(dir_entries_);
-  std::ranges::sort(file_entries_);
+void FileDialog::refresh_entries()
+{
+  const DirectoryListing listing = list_yaml_directory(current_dir_);
+  dir_entries_ = listing.directories;
+  file_entries_ = listing.yaml_files;
 }
 
 }  // namespace stdr_gui

@@ -6,6 +6,9 @@
 #include <GL/gl.h>
 #include <GLFW/glfw3.h>
 
+#include <stdr_gui/grid_utils.hpp>
+#include <stdr_gui/pose_utils.hpp>
+
 #include <cmath>
 #include <cstdint>
 #include <cstring>
@@ -22,44 +25,6 @@ namespace
 constexpr float kRobotRadius = 0.2f;         // Default footprint radius in world metres.
 constexpr float kArrowLength = 0.35f;        // Orientation arrow length in world metres.
 constexpr float kSelectionThreshold = 15.f;  // Click distance in pixels to select a robot.
-
-// Map an int8_t occupancy value to an RGBA pixel.
-void occupancy_to_rgba(std::int8_t value, std::uint8_t* out)
-{
-  if (value == -1)
-  {
-    // Unknown: mid-grey.
-    out[0] = 128;
-    out[1] = 128;
-    out[2] = 128;
-    out[3] = 255;
-  }
-  else if (value == 0)
-  {
-    // Free: white.
-    out[0] = 255;
-    out[1] = 255;
-    out[2] = 255;
-    out[3] = 255;
-  }
-  else if (value == 100)
-  {
-    // Occupied: black.
-    out[0] = 0;
-    out[1] = 0;
-    out[2] = 0;
-    out[3] = 255;
-  }
-  else
-  {
-    // Partially occupied: linear interpolation from white (0) to black (100).
-    const std::uint8_t v = static_cast<std::uint8_t>(255 - (value * 255 / 100));
-    out[0] = v;
-    out[1] = v;
-    out[2] = v;
-    out[3] = 255;
-  }
-}
 
 }  // namespace
 
@@ -120,7 +85,8 @@ void MapPanel::update_texture(const stdr_simulation::OccupancyGrid& grid)
   for (std::size_t i = 0; i < pixel_count; ++i)
   {
     const std::int8_t val = (i < grid.data.size()) ? grid.data[i] : -1;
-    occupancy_to_rgba(val, rgba.data() + i * 4);
+    const RgbaPixel pixel = occupancy_to_rgba(val);
+    std::memcpy(rgba.data() + i * 4, pixel.data(), 4);
   }
 
   if (map_texture_ == 0)
@@ -304,22 +270,17 @@ void MapPanel::render_sensor_overlays(const SimulationSnapshot& snapshot)
     // Sensor pose is relative to robot.
     const stdr_simulation::Pose2D sensor_pose =
         (li < robot.config.laser_sensors.size()) ? robot.config.laser_sensors[li].pose : stdr_simulation::Pose2D{};
+    const stdr_simulation::Pose2D sensor_world = transform_to_world(robot.pose, sensor_pose);
 
-    const double sensor_world_x =
-        robot.pose.x + sensor_pose.x * std::cos(robot.pose.theta) - sensor_pose.y * std::sin(robot.pose.theta);
-    const double sensor_world_y =
-        robot.pose.y + sensor_pose.x * std::sin(robot.pose.theta) + sensor_pose.y * std::cos(robot.pose.theta);
-    const double sensor_theta = robot.pose.theta + sensor_pose.theta;
-
-    const ScreenPoint sensor_sp = transform_.world_to_screen(sensor_world_x, sensor_world_y);
+    const ScreenPoint sensor_sp = transform_.world_to_screen(sensor_world.x, sensor_world.y);
     const ImVec2 sensor_screen{ window_pos.x + sensor_sp.x, window_pos.y + sensor_sp.y };
 
     for (std::size_t i = 0; i < scan.ranges.size(); ++i)
     {
-      const double angle = sensor_theta + scan.angle_min + static_cast<double>(i) * scan.angle_increment;
+      const double angle = sensor_world.theta + scan.angle_min + static_cast<double>(i) * scan.angle_increment;
       const double range = static_cast<double>(scan.ranges[i]);
-      const double end_wx = sensor_world_x + range * std::cos(angle);
-      const double end_wy = sensor_world_y + range * std::sin(angle);
+      const double end_wx = sensor_world.x + range * std::cos(angle);
+      const double end_wy = sensor_world.y + range * std::sin(angle);
 
       const ScreenPoint end_sp = transform_.world_to_screen(end_wx, end_wy);
       const ImVec2 end_screen{ window_pos.x + end_sp.x, window_pos.y + end_sp.y };
@@ -338,27 +299,21 @@ void MapPanel::render_sensor_overlays(const SimulationSnapshot& snapshot)
     }
 
     const stdr_simulation::SonarConfig& cfg = robot.config.sonar_sensors[si];
-    const stdr_simulation::Pose2D& sensor_pose = cfg.pose;
+    const stdr_simulation::Pose2D sensor_world = transform_to_world(robot.pose, cfg.pose);
 
-    const double sensor_world_x =
-        robot.pose.x + sensor_pose.x * std::cos(robot.pose.theta) - sensor_pose.y * std::sin(robot.pose.theta);
-    const double sensor_world_y =
-        robot.pose.y + sensor_pose.x * std::sin(robot.pose.theta) + sensor_pose.y * std::cos(robot.pose.theta);
-    const double sensor_theta = robot.pose.theta + sensor_pose.theta;
-
-    const ScreenPoint sensor_sp = transform_.world_to_screen(sensor_world_x, sensor_world_y);
+    const ScreenPoint sensor_sp = transform_.world_to_screen(sensor_world.x, sensor_world.y);
     const ImVec2 sensor_screen{ window_pos.x + sensor_sp.x, window_pos.y + sensor_sp.y };
 
     const double range = scan.range;
     const double half_cone = cfg.cone_angle * 0.5;
 
-    const double left_angle = sensor_theta + half_cone;
-    const double right_angle = sensor_theta - half_cone;
+    const double left_angle = sensor_world.theta + half_cone;
+    const double right_angle = sensor_world.theta - half_cone;
 
-    const double left_wx = sensor_world_x + range * std::cos(left_angle);
-    const double left_wy = sensor_world_y + range * std::sin(left_angle);
-    const double right_wx = sensor_world_x + range * std::cos(right_angle);
-    const double right_wy = sensor_world_y + range * std::sin(right_angle);
+    const double left_wx = sensor_world.x + range * std::cos(left_angle);
+    const double left_wy = sensor_world.y + range * std::sin(left_angle);
+    const double right_wx = sensor_world.x + range * std::cos(right_angle);
+    const double right_wy = sensor_world.y + range * std::sin(right_angle);
 
     const ScreenPoint left_sp = transform_.world_to_screen(left_wx, left_wy);
     const ScreenPoint right_sp = transform_.world_to_screen(right_wx, right_wy);
