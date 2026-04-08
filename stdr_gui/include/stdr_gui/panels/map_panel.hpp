@@ -54,6 +54,11 @@ private:
   std::string selected_robot_;
   bool show_grid_{ false };
   bool dragging_robot_{ false };
+
+  // Screen position where the context menu was opened, captured on right-click
+  // so "Teleport here" targets the click location rather than the menu item position.
+  float context_click_x_{ 0.0f };
+  float context_click_y_{ 0.0f };
 };
 
 }  // namespace stdr_gui

@@ -43,7 +43,7 @@ const std::string& MapPanel::selected_robot() const
 
 void MapPanel::render(const SimulationSnapshot& snapshot, SimulatorBackend& backend)
 {
-  ImGui::Begin("Map");
+  ImGui::Begin("Map", nullptr, ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoCollapse);
 
   const stdr_simulation::OccupancyGrid& grid = snapshot.map;
   if (grid.width > 0 && grid.height > 0)
@@ -145,6 +145,15 @@ void MapPanel::handle_input(SimulatorBackend& backend)
     // record the click position for distance testing there.  For simplicity,
     // clear selection if no robot is close enough.
     selected_robot_.clear();
+  }
+
+  // Capture the right-click position at the moment of the click so the context
+  // menu "Teleport here" action can use the original click location rather than
+  // the mouse position over the menu item.
+  if (ImGui::IsMouseClicked(ImGuiMouseButton_Right))
+  {
+    context_click_x_ = mouse_pos.x;
+    context_click_y_ = mouse_pos.y;
   }
 }
 
@@ -389,12 +398,13 @@ void MapPanel::render_context_menu(SimulatorBackend& backend, const SimulationSn
         selected_robot_.clear();
       }
 
-      // Teleport: use the current mouse position converted to world coordinates.
+      // Teleport: use the right-click position captured in handle_input so the
+      // target is the map location where the user clicked, not the menu item.
       if (ImGui::MenuItem("Teleport here"))
       {
-        const ImVec2 mouse_pos = ImGui::GetMousePos();
         const ImVec2 window_pos = ImGui::GetWindowPos();
-        const auto [wx, wy] = transform_.screen_to_world(mouse_pos.x - window_pos.x, mouse_pos.y - window_pos.y);
+        const auto [wx, wy] =
+            transform_.screen_to_world(context_click_x_ - window_pos.x, context_click_y_ - window_pos.y);
 
         // Find current theta to preserve orientation.
         double theta = 0.0;

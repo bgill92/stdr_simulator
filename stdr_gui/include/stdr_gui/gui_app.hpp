@@ -48,6 +48,7 @@ private:
   void render_frame(const SimulationSnapshot& snapshot);
   void setup_docking_layout();
   void handle_file_dialog_result();
+  void render_spawn_dialog();
 
   std::unique_ptr<SimulatorBackend> backend_;
   GLFWwindow* window_{ nullptr };
@@ -59,6 +60,16 @@ private:
   Toolbar toolbar_;
   FileDialog file_dialog_;
   std::vector<std::unique_ptr<SensorWindow>> sensor_windows_;
+
+  // Spawn dialog state: shown after picking a robot file, before committing the spawn.
+  bool show_spawn_dialog_{ false };
+  // Set once when the dialog is requested; consumed by render_spawn_dialog() to
+  // call OpenPopup exactly once rather than every frame.
+  bool open_spawn_popup_{ false };
+  std::string pending_robot_path_;
+  float spawn_x_{ 0.0f };
+  float spawn_y_{ 0.0f };
+  float spawn_theta_{ 0.0f };
 };
 
 }  // namespace stdr_gui

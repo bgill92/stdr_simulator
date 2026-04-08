@@ -10,6 +10,7 @@
 #include <GLFW/glfw3.h>
 
 #include <algorithm>
+#include <numbers>
 
 namespace stdr_gui
 {
@@ -108,9 +109,28 @@ void GuiApp::request_shutdown()
 void GuiApp::render_frame(const SimulationSnapshot& snapshot)
 {
   toolbar_.render(*backend_, file_dialog_, snapshot);
+
+  // Use the viewport work area so panel layout adapts to the menu bar height
+  // at any DPI, without querying the GLFW window size in logical coordinates.
+  const ImGuiViewport* viewport = ImGui::GetMainViewport();
+  const float content_y = viewport->WorkPos.y;
+  const float content_h = viewport->WorkSize.y;
+  const float total_w = viewport->WorkSize.x;
+
+  constexpr float kRightPanelFraction = 0.25f;
+  const float left_w = total_w * (1.0f - kRightPanelFraction);
+  const float right_w = total_w * kRightPanelFraction;
+
+  ImGui::SetNextWindowPos(ImVec2(0.0f, content_y), ImGuiCond_Always);
+  ImGui::SetNextWindowSize(ImVec2(left_w, content_h), ImGuiCond_Always);
   map_panel_.render(snapshot, *backend_);
+
+  ImGui::SetNextWindowPos(ImVec2(left_w, content_y), ImGuiCond_Always);
+  ImGui::SetNextWindowSize(ImVec2(right_w, content_h), ImGuiCond_Always);
   robot_info_panel_.render(snapshot, *backend_, sensor_windows_);
+
   handle_file_dialog_result();
+  render_spawn_dialog();
 
   // Render sensor windows, removing any that have been closed.
   std::erase_if(sensor_windows_, [&snapshot](const std::unique_ptr<SensorWindow>& w) { return !w->render(snapshot); });
@@ -140,10 +160,63 @@ void GuiApp::handle_file_dialog_result()
     }
     case FileDialogPurpose::kLoadRobot:
     {
-      // Errors are surfaced through backend_->poll_messages() in the toolbar.
-      std::ignore = backend_->spawn_robot(path, stdr_simulation::Pose2D{});
+      // Store the path and show the spawn dialog so the user can set an
+      // initial pose before committing the spawn.
+      pending_robot_path_ = path;
+      spawn_x_ = 0.0f;
+      spawn_y_ = 0.0f;
+      spawn_theta_ = 0.0f;
+      show_spawn_dialog_ = true;
+      open_spawn_popup_ = true;
       break;
     }
+  }
+}
+
+void GuiApp::render_spawn_dialog()
+{
+  if (!show_spawn_dialog_)
+  {
+    return;
+  }
+
+  // OpenPopup is called once when the dialog is first requested so ImGui
+  // registers the open transition exactly once.
+  if (open_spawn_popup_)
+  {
+    ImGui::OpenPopup("Spawn Robot");
+    open_spawn_popup_ = false;
+  }
+
+  if (ImGui::BeginPopupModal("Spawn Robot", &show_spawn_dialog_, ImGuiWindowFlags_AlwaysAutoResize))
+  {
+    ImGui::TextUnformatted("Set initial pose for robot:");
+    ImGui::Separator();
+
+    ImGui::InputFloat("X", &spawn_x_, 0.1f, 1.0f, "%.2f");
+    ImGui::InputFloat("Y", &spawn_y_, 0.1f, 1.0f, "%.2f");
+    constexpr float kPi = std::numbers::pi_v<float>;
+    ImGui::SliderFloat("Theta", &spawn_theta_, -kPi, kPi, "%.2f rad");
+
+    ImGui::Separator();
+
+    if (ImGui::Button("Spawn", ImVec2(120.0f, 0.0f)))
+    {
+      const stdr_simulation::Pose2D pose{ static_cast<double>(spawn_x_), static_cast<double>(spawn_y_),
+                                          static_cast<double>(spawn_theta_) };
+      // Errors are surfaced through backend_->poll_messages() in the toolbar.
+      std::ignore = backend_->spawn_robot(pending_robot_path_, pose);
+      show_spawn_dialog_ = false;
+      ImGui::CloseCurrentPopup();
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("Cancel", ImVec2(120.0f, 0.0f)))
+    {
+      show_spawn_dialog_ = false;
+      ImGui::CloseCurrentPopup();
+    }
+
+    ImGui::EndPopup();
   }
 }
 

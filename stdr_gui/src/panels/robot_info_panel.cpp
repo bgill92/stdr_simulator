@@ -11,7 +11,7 @@ namespace stdr_gui
 void RobotInfoPanel::render(const SimulationSnapshot& snapshot, SimulatorBackend& backend,
                             std::vector<std::unique_ptr<SensorWindow>>& sensor_windows)
 {
-  ImGui::Begin("Robot Info");
+  ImGui::Begin("Robot Info", nullptr, ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoCollapse);
 
   if (snapshot.robots.empty())
   {
