@@ -14,6 +14,7 @@
   <depend>stdr_simulation</depend>
   <depend>stdr_msgs</depend>
   <depend>geometry_msgs</depend>
+  <depend>sensor_msgs</depend>
   <depend>ament_index_cpp</depend>
   <depend>tl_expected</depend>
   <exec_depend>rosidl_default_runtime</exec_depend>

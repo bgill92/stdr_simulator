@@ -1,6 +1,7 @@
 #include <stdr_parser/msg_conversions.hpp>
 
-namespace stdr_parser {
+namespace stdr_parser
+{
 
 // --- Pose2D ---
 
@@ -69,7 +70,8 @@ stdr_msgs::msg::FootprintMsg to_ros_msg(const stdr_simulation::Footprint& fp)
   stdr_msgs::msg::FootprintMsg msg;
   msg.radius = static_cast<float>(fp.radius);
   msg.points.reserve(fp.points.size());
-  for (const stdr_simulation::Point2D& pt : fp.points) {
+  for (const stdr_simulation::Point2D& pt : fp.points)
+  {
     msg.points.push_back(to_ros_point(pt));
   }
   return msg;
@@ -80,7 +82,8 @@ stdr_simulation::Footprint from_ros_msg(const stdr_msgs::msg::FootprintMsg& msg)
   stdr_simulation::Footprint fp;
   fp.radius = static_cast<double>(msg.radius);
   fp.points.reserve(msg.points.size());
-  for (const geometry_msgs::msg::Point& pt : msg.points) {
+  for (const geometry_msgs::msg::Point& pt : msg.points)
+  {
     fp.points.push_back(from_ros_point(pt));
   }
   return fp;
@@ -290,27 +293,33 @@ stdr_msgs::msg::RobotMsg to_ros_msg(const stdr_simulation::RobotConfig& cfg)
   msg.initial_pose = to_ros_msg(cfg.initial_pose);
   msg.footprint = to_ros_msg(cfg.footprint);
   msg.laser_sensors.reserve(cfg.laser_sensors.size());
-  for (const stdr_simulation::LaserConfig& s : cfg.laser_sensors) {
+  for (const stdr_simulation::LaserConfig& s : cfg.laser_sensors)
+  {
     msg.laser_sensors.push_back(to_ros_msg(s));
   }
   msg.sonar_sensors.reserve(cfg.sonar_sensors.size());
-  for (const stdr_simulation::SonarConfig& s : cfg.sonar_sensors) {
+  for (const stdr_simulation::SonarConfig& s : cfg.sonar_sensors)
+  {
     msg.sonar_sensors.push_back(to_ros_msg(s));
   }
   msg.rfid_sensors.reserve(cfg.rfid_sensors.size());
-  for (const stdr_simulation::RfidSensorConfig& s : cfg.rfid_sensors) {
+  for (const stdr_simulation::RfidSensorConfig& s : cfg.rfid_sensors)
+  {
     msg.rfid_sensors.push_back(to_ros_msg(s));
   }
   msg.co2_sensors.reserve(cfg.co2_sensors.size());
-  for (const stdr_simulation::CO2SensorConfig& s : cfg.co2_sensors) {
+  for (const stdr_simulation::CO2SensorConfig& s : cfg.co2_sensors)
+  {
     msg.co2_sensors.push_back(to_ros_msg(s));
   }
   msg.sound_sensors.reserve(cfg.sound_sensors.size());
-  for (const stdr_simulation::SoundSensorConfig& s : cfg.sound_sensors) {
+  for (const stdr_simulation::SoundSensorConfig& s : cfg.sound_sensors)
+  {
     msg.sound_sensors.push_back(to_ros_msg(s));
   }
   msg.thermal_sensors.reserve(cfg.thermal_sensors.size());
-  for (const stdr_simulation::ThermalSensorConfig& s : cfg.thermal_sensors) {
+  for (const stdr_simulation::ThermalSensorConfig& s : cfg.thermal_sensors)
+  {
     msg.thermal_sensors.push_back(to_ros_msg(s));
   }
   msg.kinematic_model = to_ros_msg(cfg.kinematic_model);
@@ -323,27 +332,33 @@ stdr_simulation::RobotConfig from_ros_msg(const stdr_msgs::msg::RobotMsg& msg)
   cfg.initial_pose = from_ros_msg(msg.initial_pose);
   cfg.footprint = from_ros_msg(msg.footprint);
   cfg.laser_sensors.reserve(msg.laser_sensors.size());
-  for (const stdr_msgs::msg::LaserSensorMsg& s : msg.laser_sensors) {
+  for (const stdr_msgs::msg::LaserSensorMsg& s : msg.laser_sensors)
+  {
     cfg.laser_sensors.push_back(from_ros_msg(s));
   }
   cfg.sonar_sensors.reserve(msg.sonar_sensors.size());
-  for (const stdr_msgs::msg::SonarSensorMsg& s : msg.sonar_sensors) {
+  for (const stdr_msgs::msg::SonarSensorMsg& s : msg.sonar_sensors)
+  {
     cfg.sonar_sensors.push_back(from_ros_msg(s));
   }
   cfg.rfid_sensors.reserve(msg.rfid_sensors.size());
-  for (const stdr_msgs::msg::RfidSensorMsg& s : msg.rfid_sensors) {
+  for (const stdr_msgs::msg::RfidSensorMsg& s : msg.rfid_sensors)
+  {
     cfg.rfid_sensors.push_back(from_ros_msg(s));
   }
   cfg.co2_sensors.reserve(msg.co2_sensors.size());
-  for (const stdr_msgs::msg::CO2SensorMsg& s : msg.co2_sensors) {
+  for (const stdr_msgs::msg::CO2SensorMsg& s : msg.co2_sensors)
+  {
     cfg.co2_sensors.push_back(from_ros_msg(s));
   }
   cfg.sound_sensors.reserve(msg.sound_sensors.size());
-  for (const stdr_msgs::msg::SoundSensorMsg& s : msg.sound_sensors) {
+  for (const stdr_msgs::msg::SoundSensorMsg& s : msg.sound_sensors)
+  {
     cfg.sound_sensors.push_back(from_ros_msg(s));
   }
   cfg.thermal_sensors.reserve(msg.thermal_sensors.size());
-  for (const stdr_msgs::msg::ThermalSensorMsg& s : msg.thermal_sensors) {
+  for (const stdr_msgs::msg::ThermalSensorMsg& s : msg.thermal_sensors)
+  {
     cfg.thermal_sensors.push_back(from_ros_msg(s));
   }
   cfg.kinematic_model = from_ros_msg(msg.kinematic_model);
@@ -428,6 +443,70 @@ stdr_simulation::ThermalSource from_ros_msg(const stdr_msgs::msg::ThermalSource&
   src.degrees = static_cast<double>(msg.degrees);
   src.pose = from_ros_msg(msg.pose);
   return src;
+}
+
+// --- Sensor measurements ---
+
+sensor_msgs::msg::LaserScan to_ros_msg(const stdr_simulation::LaserScan& scan)
+{
+  sensor_msgs::msg::LaserScan msg;
+  msg.angle_min = static_cast<float>(scan.angle_min);
+  msg.angle_max = static_cast<float>(scan.angle_max);
+  msg.angle_increment = static_cast<float>(scan.angle_increment);
+  msg.range_min = static_cast<float>(scan.range_min);
+  msg.range_max = static_cast<float>(scan.range_max);
+  msg.ranges = scan.ranges;  // Already float.
+  return msg;
+}
+
+sensor_msgs::msg::Range to_ros_sonar_msg(const stdr_simulation::SonarScan& scan,
+                                         const stdr_simulation::SonarConfig& config)
+{
+  sensor_msgs::msg::Range msg;
+  msg.radiation_type = sensor_msgs::msg::Range::ULTRASOUND;
+  msg.field_of_view = static_cast<float>(config.cone_angle);
+  msg.min_range = static_cast<float>(config.min_range);
+  msg.max_range = static_cast<float>(config.max_range);
+  msg.range = static_cast<float>(scan.range);
+  return msg;
+}
+
+stdr_msgs::msg::RfidSensorMeasurementMsg to_ros_msg(const stdr_simulation::RfidMeasurement& meas)
+{
+  stdr_msgs::msg::RfidSensorMeasurementMsg msg;
+  msg.rfid_tags_ids = meas.tag_ids;
+  msg.rfid_tags_msgs = meas.tag_messages;
+  msg.rfid_tags_dbs.reserve(meas.tag_dbs.size());
+  for (const double db : meas.tag_dbs)
+  {
+    msg.rfid_tags_dbs.push_back(static_cast<float>(db));
+  }
+  return msg;
+}
+
+stdr_msgs::msg::CO2SensorMeasurementMsg to_ros_msg(const stdr_simulation::CO2Measurement& meas)
+{
+  stdr_msgs::msg::CO2SensorMeasurementMsg msg;
+  msg.co2_ppm = static_cast<float>(meas.ppm);
+  return msg;
+}
+
+stdr_msgs::msg::SoundSensorMeasurementMsg to_ros_msg(const stdr_simulation::SoundMeasurement& meas)
+{
+  stdr_msgs::msg::SoundSensorMeasurementMsg msg;
+  msg.sound_dbs = static_cast<float>(meas.dbs);
+  return msg;
+}
+
+stdr_msgs::msg::ThermalSensorMeasurementMsg to_ros_msg(const stdr_simulation::ThermalMeasurement& meas)
+{
+  stdr_msgs::msg::ThermalSensorMeasurementMsg msg;
+  msg.thermal_source_degrees.reserve(meas.source_degrees.size());
+  for (const double deg : meas.source_degrees)
+  {
+    msg.thermal_source_degrees.push_back(static_cast<float>(deg));
+  }
+  return msg;
 }
 
 }  // namespace stdr_parser
