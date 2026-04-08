@@ -40,6 +40,8 @@ ros-jazzy-ament-lint-auto = "*"
 ros-jazzy-ament-cmake-gtest = "*"
 clang-tools = "*"
 pre-commit = "*"
+imgui = ">=1.92.3,<2"
+implot = ">=0.17,<0.18"
 
 [tasks]
 build = "colcon build --symlink-install --cmake-args -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCMAKE_EXPORT_COMPILE_COMMANDS=ON"

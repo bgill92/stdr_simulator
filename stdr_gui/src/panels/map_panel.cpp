@@ -1,0 +1,466 @@
+#include <stdr_gui/panels/map_panel.hpp>
+
+#include <imgui.h>
+
+#define GLFW_INCLUDE_NONE
+#include <GL/gl.h>
+#include <GLFW/glfw3.h>
+
+#include <cmath>
+#include <cstdint>
+#include <cstring>
+#include <limits>
+#include <string>
+#include <vector>
+
+namespace stdr_gui
+{
+
+namespace
+{
+
+constexpr float kRobotRadius = 0.2f;         // Default footprint radius in world metres.
+constexpr float kArrowLength = 0.35f;        // Orientation arrow length in world metres.
+constexpr float kSelectionThreshold = 15.f;  // Click distance in pixels to select a robot.
+
+// Map an int8_t occupancy value to an RGBA pixel.
+void occupancy_to_rgba(std::int8_t value, std::uint8_t* out)
+{
+  if (value == -1)
+  {
+    // Unknown: mid-grey.
+    out[0] = 128;
+    out[1] = 128;
+    out[2] = 128;
+    out[3] = 255;
+  }
+  else if (value == 0)
+  {
+    // Free: white.
+    out[0] = 255;
+    out[1] = 255;
+    out[2] = 255;
+    out[3] = 255;
+  }
+  else if (value == 100)
+  {
+    // Occupied: black.
+    out[0] = 0;
+    out[1] = 0;
+    out[2] = 0;
+    out[3] = 255;
+  }
+  else
+  {
+    // Partially occupied: linear interpolation from white (0) to black (100).
+    const std::uint8_t v = static_cast<std::uint8_t>(255 - (value * 255 / 100));
+    out[0] = v;
+    out[1] = v;
+    out[2] = v;
+    out[3] = 255;
+  }
+}
+
+}  // namespace
+
+MapPanel::~MapPanel()
+{
+  if (map_texture_ != 0)
+  {
+    glDeleteTextures(1, &map_texture_);
+  }
+}
+
+const std::string& MapPanel::selected_robot() const
+{
+  return selected_robot_;
+}
+
+void MapPanel::render(const SimulationSnapshot& snapshot, SimulatorBackend& backend)
+{
+  ImGui::Begin("Map");
+
+  const stdr_simulation::OccupancyGrid& grid = snapshot.map;
+  if (grid.width > 0 && grid.height > 0)
+  {
+    update_texture(grid);
+    transform_.set_map_info(grid.origin.x, grid.origin.y, grid.resolution, grid.width, grid.height);
+    cached_origin_x_ = grid.origin.x;
+    cached_origin_y_ = grid.origin.y;
+    cached_resolution_ = grid.resolution;
+  }
+
+  handle_input(backend);
+  render_map_image();
+  render_robots(snapshot);
+  render_sensor_overlays(snapshot);
+  render_environment_sources(snapshot);
+  render_context_menu(backend, snapshot);
+
+  ImGui::End();
+}
+
+void MapPanel::update_texture(const stdr_simulation::OccupancyGrid& grid)
+{
+  const bool dimensions_changed = (grid.width != cached_map_width_ || grid.height != cached_map_height_);
+  const bool data_changed = (grid.data != cached_map_data_);
+
+  if (!dimensions_changed && !data_changed)
+  {
+    return;
+  }
+
+  cached_map_width_ = grid.width;
+  cached_map_height_ = grid.height;
+  cached_map_data_ = grid.data;
+
+  const std::size_t pixel_count = static_cast<std::size_t>(grid.width) * static_cast<std::size_t>(grid.height);
+  std::vector<std::uint8_t> rgba(pixel_count * 4);
+
+  for (std::size_t i = 0; i < pixel_count; ++i)
+  {
+    const std::int8_t val = (i < grid.data.size()) ? grid.data[i] : -1;
+    occupancy_to_rgba(val, rgba.data() + i * 4);
+  }
+
+  if (map_texture_ == 0)
+  {
+    glGenTextures(1, &map_texture_);
+  }
+
+  glBindTexture(GL_TEXTURE_2D, map_texture_);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+
+  if (dimensions_changed)
+  {
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, grid.width, grid.height, 0, GL_RGBA, GL_UNSIGNED_BYTE, rgba.data());
+  }
+  else
+  {
+    glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, grid.width, grid.height, GL_RGBA, GL_UNSIGNED_BYTE, rgba.data());
+  }
+
+  glBindTexture(GL_TEXTURE_2D, 0);
+}
+
+void MapPanel::handle_input(SimulatorBackend& backend)
+{
+  if (!ImGui::IsWindowFocused() && !ImGui::IsWindowHovered())
+  {
+    return;
+  }
+
+  const ImVec2 window_pos = ImGui::GetWindowPos();
+  const ImVec2 mouse_pos = ImGui::GetMousePos();
+  const float mx = mouse_pos.x - window_pos.x;
+  const float my = mouse_pos.y - window_pos.y;
+
+  // Middle-mouse drag for pan.
+  if (ImGui::IsMouseDragging(ImGuiMouseButton_Middle))
+  {
+    const ImVec2 delta = ImGui::GetMouseDragDelta(ImGuiMouseButton_Middle);
+    transform_.pan(delta.x, delta.y);
+    ImGui::ResetMouseDragDelta(ImGuiMouseButton_Middle);
+  }
+
+  // Mouse wheel for zoom.
+  const float wheel = ImGui::GetIO().MouseWheel;
+  if (wheel != 0.0f)
+  {
+    const float factor = (wheel > 0.0f) ? 1.1f : (1.0f / 1.1f);
+    transform_.zoom(mx, my, factor);
+  }
+
+  // Left-click: select a robot closest to the click.
+  if (ImGui::IsMouseClicked(ImGuiMouseButton_Left))
+  {
+    // Robot selection is done in render_robots via draw list; we just
+    // record the click position for distance testing there.  For simplicity,
+    // clear selection if no robot is close enough.
+    selected_robot_.clear();
+  }
+}
+
+void MapPanel::render_map_image()
+{
+  if (map_texture_ == 0 || cached_map_width_ == 0 || cached_map_height_ == 0)
+  {
+    return;
+  }
+
+  ImDrawList* draw_list = ImGui::GetWindowDrawList();
+  const ImVec2 window_pos = ImGui::GetWindowPos();
+
+  // Map corners in world coordinates: the occupancy grid spans from
+  // (origin_x, origin_y) to (origin_x + width*resolution, origin_y + height*resolution).
+  // In screen space, after Y-flip, the world top-left becomes screen top and world bottom becomes screen bottom.
+  const double world_right = cached_origin_x_ + cached_map_width_ * cached_resolution_;
+  const double world_top = cached_origin_y_ + cached_map_height_ * cached_resolution_;
+
+  // Screen top-left: world top-left corner.
+  const ScreenPoint tl = transform_.world_to_screen(cached_origin_x_, world_top);
+  // Screen bottom-right: world bottom-right corner.
+  const ScreenPoint br = transform_.world_to_screen(world_right, cached_origin_y_);
+
+  const ImVec2 p_min{ window_pos.x + tl.x, window_pos.y + tl.y };
+  const ImVec2 p_max{ window_pos.x + br.x, window_pos.y + br.y };
+
+  // OpenGL texture coordinates: (0,0)=bottom-left, (1,1)=top-right.
+  // ImGui screen: y increases downward, ROS map: y increases upward, so we
+  // flip the UV vertically.
+  draw_list->AddImage(ImTextureRef(static_cast<ImTextureID>(map_texture_)), p_min, p_max,
+                      ImVec2(0.0f, 1.0f),   // UV top-left: bottom of texture.
+                      ImVec2(1.0f, 0.0f));  // UV bottom-right: top of texture.
+}
+
+void MapPanel::render_robots(const SimulationSnapshot& snapshot)
+{
+  ImDrawList* draw_list = ImGui::GetWindowDrawList();
+  const ImVec2 window_pos = ImGui::GetWindowPos();
+  const ImVec2 mouse_pos = ImGui::GetMousePos();
+
+  float best_dist = std::numeric_limits<float>::max();
+
+  for (const stdr_simulation::world::RobotState& robot : snapshot.robots)
+  {
+    const ScreenPoint sp = transform_.world_to_screen(robot.pose.x, robot.pose.y);
+    const ImVec2 center{ window_pos.x + sp.x, window_pos.y + sp.y };
+
+    // Determine display radius: use config radius if available, else default.
+    const float world_radius =
+        (robot.config.footprint.radius > 0.0) ? static_cast<float>(robot.config.footprint.radius) : kRobotRadius;
+    const float screen_radius = world_radius * transform_.get_zoom();
+
+    const bool is_selected = (robot.name == selected_robot_);
+    const ImU32 fill_color = is_selected ? IM_COL32(255, 200, 0, 180) : IM_COL32(0, 120, 255, 180);
+    const ImU32 border_color = is_selected ? IM_COL32(255, 150, 0, 255) : IM_COL32(0, 80, 200, 255);
+
+    draw_list->AddCircleFilled(center, screen_radius, fill_color);
+    draw_list->AddCircle(center, screen_radius, border_color, 32, 2.0f);
+
+    // Draw orientation arrow.
+    const float arrow_screen = kArrowLength * transform_.get_zoom();
+    const ImVec2 tip{ center.x + arrow_screen * static_cast<float>(std::cos(robot.pose.theta)),
+                      center.y - arrow_screen * static_cast<float>(std::sin(robot.pose.theta)) };
+    draw_list->AddLine(center, tip, IM_COL32(255, 255, 0, 255), 2.0f);
+
+    // Robot name label.
+    draw_list->AddText(ImVec2(center.x + screen_radius + 3.0f, center.y - 8.0f), IM_COL32(255, 255, 255, 255),
+                       robot.name.c_str());
+
+    // Left-click selection: pick the robot closest to the click within threshold.
+    if (ImGui::IsMouseClicked(ImGuiMouseButton_Left))
+    {
+      const float dx = mouse_pos.x - center.x;
+      const float dy = mouse_pos.y - center.y;
+      const float dist = std::sqrt(dx * dx + dy * dy);
+      const float effective_threshold = std::max(kSelectionThreshold, screen_radius);
+      if (dist < effective_threshold && dist < best_dist)
+      {
+        best_dist = dist;
+        selected_robot_ = robot.name;
+      }
+    }
+  }
+}
+
+void MapPanel::render_sensor_overlays(const SimulationSnapshot& snapshot)
+{
+  if (selected_robot_.empty())
+  {
+    return;
+  }
+
+  const auto robot_it = std::ranges::find_if(snapshot.robots, [&](const stdr_simulation::world::RobotState& r) {
+    return r.name == selected_robot_;
+  });
+  if (robot_it == snapshot.robots.end())
+  {
+    return;
+  }
+
+  const auto data_it = snapshot.sensor_data.find(selected_robot_);
+  if (data_it == snapshot.sensor_data.end())
+  {
+    return;
+  }
+
+  ImDrawList* draw_list = ImGui::GetWindowDrawList();
+  const ImVec2 window_pos = ImGui::GetWindowPos();
+
+  const stdr_simulation::RobotSensorData& data = data_it->second;
+  const stdr_simulation::world::RobotState& robot = *robot_it;
+
+  // Draw laser scan rays for each laser sensor.
+  for (std::size_t li = 0; li < data.laser_scans.size(); ++li)
+  {
+    const stdr_simulation::LaserScan& scan = data.laser_scans[li];
+    if (scan.ranges.empty())
+    {
+      continue;
+    }
+
+    // Sensor pose is relative to robot.
+    const stdr_simulation::Pose2D sensor_pose =
+        (li < robot.config.laser_sensors.size()) ? robot.config.laser_sensors[li].pose : stdr_simulation::Pose2D{};
+
+    const double sensor_world_x =
+        robot.pose.x + sensor_pose.x * std::cos(robot.pose.theta) - sensor_pose.y * std::sin(robot.pose.theta);
+    const double sensor_world_y =
+        robot.pose.y + sensor_pose.x * std::sin(robot.pose.theta) + sensor_pose.y * std::cos(robot.pose.theta);
+    const double sensor_theta = robot.pose.theta + sensor_pose.theta;
+
+    const ScreenPoint sensor_sp = transform_.world_to_screen(sensor_world_x, sensor_world_y);
+    const ImVec2 sensor_screen{ window_pos.x + sensor_sp.x, window_pos.y + sensor_sp.y };
+
+    for (std::size_t i = 0; i < scan.ranges.size(); ++i)
+    {
+      const double angle = sensor_theta + scan.angle_min + static_cast<double>(i) * scan.angle_increment;
+      const double range = static_cast<double>(scan.ranges[i]);
+      const double end_wx = sensor_world_x + range * std::cos(angle);
+      const double end_wy = sensor_world_y + range * std::sin(angle);
+
+      const ScreenPoint end_sp = transform_.world_to_screen(end_wx, end_wy);
+      const ImVec2 end_screen{ window_pos.x + end_sp.x, window_pos.y + end_sp.y };
+
+      draw_list->AddLine(sensor_screen, end_screen, IM_COL32(255, 50, 50, 80), 1.0f);
+    }
+  }
+
+  // Draw sonar cones for each sonar sensor.
+  for (std::size_t si = 0; si < data.sonar_scans.size(); ++si)
+  {
+    const stdr_simulation::SonarScan& scan = data.sonar_scans[si];
+    if (si >= robot.config.sonar_sensors.size())
+    {
+      continue;
+    }
+
+    const stdr_simulation::SonarConfig& cfg = robot.config.sonar_sensors[si];
+    const stdr_simulation::Pose2D& sensor_pose = cfg.pose;
+
+    const double sensor_world_x =
+        robot.pose.x + sensor_pose.x * std::cos(robot.pose.theta) - sensor_pose.y * std::sin(robot.pose.theta);
+    const double sensor_world_y =
+        robot.pose.y + sensor_pose.x * std::sin(robot.pose.theta) + sensor_pose.y * std::cos(robot.pose.theta);
+    const double sensor_theta = robot.pose.theta + sensor_pose.theta;
+
+    const ScreenPoint sensor_sp = transform_.world_to_screen(sensor_world_x, sensor_world_y);
+    const ImVec2 sensor_screen{ window_pos.x + sensor_sp.x, window_pos.y + sensor_sp.y };
+
+    const double range = scan.range;
+    const double half_cone = cfg.cone_angle * 0.5;
+
+    const double left_angle = sensor_theta + half_cone;
+    const double right_angle = sensor_theta - half_cone;
+
+    const double left_wx = sensor_world_x + range * std::cos(left_angle);
+    const double left_wy = sensor_world_y + range * std::sin(left_angle);
+    const double right_wx = sensor_world_x + range * std::cos(right_angle);
+    const double right_wy = sensor_world_y + range * std::sin(right_angle);
+
+    const ScreenPoint left_sp = transform_.world_to_screen(left_wx, left_wy);
+    const ScreenPoint right_sp = transform_.world_to_screen(right_wx, right_wy);
+
+    const ImVec2 left_screen{ window_pos.x + left_sp.x, window_pos.y + left_sp.y };
+    const ImVec2 right_screen{ window_pos.x + right_sp.x, window_pos.y + right_sp.y };
+
+    draw_list->AddLine(sensor_screen, left_screen, IM_COL32(50, 200, 255, 120), 1.5f);
+    draw_list->AddLine(sensor_screen, right_screen, IM_COL32(50, 200, 255, 120), 1.5f);
+    draw_list->AddLine(left_screen, right_screen, IM_COL32(50, 200, 255, 120), 1.5f);
+  }
+}
+
+void MapPanel::render_environment_sources(const SimulationSnapshot& snapshot)
+{
+  ImDrawList* draw_list = ImGui::GetWindowDrawList();
+  const ImVec2 window_pos = ImGui::GetWindowPos();
+  constexpr float kSourceRadius = 6.0f;
+
+  // RFID tags: green.
+  for (const stdr_simulation::RfidTag& tag : snapshot.rfid_tags)
+  {
+    const ScreenPoint sp = transform_.world_to_screen(tag.pose.x, tag.pose.y);
+    const ImVec2 center{ window_pos.x + sp.x, window_pos.y + sp.y };
+    draw_list->AddCircleFilled(center, kSourceRadius, IM_COL32(0, 220, 50, 200));
+    draw_list->AddText(ImVec2(center.x + kSourceRadius + 2.0f, center.y - 6.0f), IM_COL32(0, 220, 50, 255),
+                       tag.tag_id.c_str());
+  }
+
+  // CO2 sources: red.
+  for (const stdr_simulation::CO2Source& src : snapshot.co2_sources)
+  {
+    const ScreenPoint sp = transform_.world_to_screen(src.pose.x, src.pose.y);
+    const ImVec2 center{ window_pos.x + sp.x, window_pos.y + sp.y };
+    draw_list->AddCircleFilled(center, kSourceRadius, IM_COL32(220, 50, 50, 200));
+    draw_list->AddText(ImVec2(center.x + kSourceRadius + 2.0f, center.y - 6.0f), IM_COL32(220, 50, 50, 255),
+                       src.id.c_str());
+  }
+
+  // Thermal sources: orange.
+  for (const stdr_simulation::ThermalSource& src : snapshot.thermal_sources)
+  {
+    const ScreenPoint sp = transform_.world_to_screen(src.pose.x, src.pose.y);
+    const ImVec2 center{ window_pos.x + sp.x, window_pos.y + sp.y };
+    draw_list->AddCircleFilled(center, kSourceRadius, IM_COL32(255, 140, 0, 200));
+    draw_list->AddText(ImVec2(center.x + kSourceRadius + 2.0f, center.y - 6.0f), IM_COL32(255, 140, 0, 255),
+                       src.id.c_str());
+  }
+
+  // Sound sources: blue.
+  for (const stdr_simulation::SoundSource& src : snapshot.sound_sources)
+  {
+    const ScreenPoint sp = transform_.world_to_screen(src.pose.x, src.pose.y);
+    const ImVec2 center{ window_pos.x + sp.x, window_pos.y + sp.y };
+    draw_list->AddCircleFilled(center, kSourceRadius, IM_COL32(80, 120, 255, 200));
+    draw_list->AddText(ImVec2(center.x + kSourceRadius + 2.0f, center.y - 6.0f), IM_COL32(80, 120, 255, 255),
+                       src.id.c_str());
+  }
+}
+
+void MapPanel::render_context_menu(SimulatorBackend& backend, const SimulationSnapshot& snapshot)
+{
+  if (ImGui::BeginPopupContextWindow("##MapContextMenu"))
+  {
+    if (!selected_robot_.empty())
+    {
+      ImGui::Text("Robot: %s", selected_robot_.c_str());
+      ImGui::Separator();
+
+      if (ImGui::MenuItem("Delete robot"))
+      {
+        backend.delete_robot(selected_robot_);
+        selected_robot_.clear();
+      }
+
+      // Teleport: use the current mouse position converted to world coordinates.
+      if (ImGui::MenuItem("Teleport here"))
+      {
+        const ImVec2 mouse_pos = ImGui::GetMousePos();
+        const ImVec2 window_pos = ImGui::GetWindowPos();
+        const auto [wx, wy] = transform_.screen_to_world(mouse_pos.x - window_pos.x, mouse_pos.y - window_pos.y);
+
+        // Find current theta to preserve orientation.
+        double theta = 0.0;
+        for (const stdr_simulation::world::RobotState& r : snapshot.robots)
+        {
+          if (r.name == selected_robot_)
+          {
+            theta = r.pose.theta;
+            break;
+          }
+        }
+        backend.set_robot_pose(selected_robot_, stdr_simulation::Pose2D{ wx, wy, theta });
+      }
+    }
+    else
+    {
+      ImGui::TextDisabled("No robot selected");
+    }
+
+    ImGui::EndPopup();
+  }
+}
+
+}  // namespace stdr_gui

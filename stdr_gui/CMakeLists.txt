@@ -1,130 +1,56 @@
 cmake_minimum_required(VERSION 3.16)
 project(stdr_gui)
 
-find_package(catkin REQUIRED COMPONENTS
-  roscpp
-  roslib
-  tf
-  stdr_msgs
-  stdr_server
-  stdr_robot
-  stdr_parser
-  sensor_msgs
-  nav_msgs
-)
+find_package(ament_cmake REQUIRED)
+find_package(stdr_simulation REQUIRED)
+find_package(tl_expected REQUIRED)
+find_package(imgui CONFIG REQUIRED)
+find_package(implot CONFIG REQUIRED)
+find_package(OpenGL REQUIRED)
 
-include_directories( include
-  ${catkin_INCLUDE_DIRS}
-)
+add_library(
+  ${PROJECT_NAME}
+  src/gui_app.cpp
+  src/map_transform.cpp
+  src/panels/file_dialog.cpp
+  src/panels/map_panel.cpp
+  src/panels/robot_info_panel.cpp
+  src/panels/sensor_window.cpp
+  src/panels/toolbar.cpp)
 
-find_package(Qt4 REQUIRED COMPONENTS
-  QtCore
-  QtGui
-  QtUiTools
-)
+target_compile_features(${PROJECT_NAME} PUBLIC cxx_std_20)
+set_target_properties(${PROJECT_NAME} PROPERTIES CXX_EXTENSIONS OFF)
 
-ADD_DEFINITIONS(-DQT_NO_KEYWORDS)
+target_include_directories(
+  ${PROJECT_NAME} PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+                         $<INSTALL_INTERFACE:include>)
 
-include(${QT_USE_FILE})
+target_link_libraries(
+  ${PROJECT_NAME}
+  PUBLIC stdr_simulation::stdr_simulation tl_expected::tl_expected imgui::imgui
+         implot::implot OpenGL::GL)
 
-include_directories(
-  ${CMAKE_CURRENT_BINARY_DIR}
-)
+install(DIRECTORY include/ DESTINATION include)
 
-catkin_package(
-  DEPENDS
-    QT
-  CATKIN_DEPENDS
-    roscpp
-    roslib
-    tf
-    stdr_msgs
-    stdr_server
-    stdr_robot
-    stdr_parser
-    sensor_msgs
-    nav_msgs
-  #INCLUDE_DIRS
-  #LIBRARIES
-)
+install(
+  TARGETS ${PROJECT_NAME}
+  EXPORT ${PROJECT_NAME}Targets
+  ARCHIVE DESTINATION lib
+  LIBRARY DESTINATION lib
+  RUNTIME DESTINATION bin)
 
-#----------------------------------------------------------------------------------------------------#
-set(QT_FORMS
-  ui/information.ui             ui/kinematicProperties.ui
-  ui/laserProperties.ui         ui/laserVisualization.ui
-  ui/map.ui                     ui/rfidAntennaProperties.ui
-  ui/robotCreator.ui            ui/robotFootprint.ui
-  ui/robotProperties.ui         ui/robotVisualization.ui
-  ui/simulator.ui               ui/sonarProperties.ui
-  ui/sonarVisualization.ui      ui/co2SensorProperties.ui
-  ui/thermalSensorProperties.ui ui/soundSensorProperties.ui
-)
+ament_export_targets(${PROJECT_NAME}Targets HAS_LIBRARY_TARGET)
+ament_export_dependencies(stdr_simulation tl_expected imgui implot OpenGL)
 
-QT4_WRAP_UI(QT_FORMS_HPP ${QT_FORMS})
+if(BUILD_TESTING)
+  find_package(ament_cmake_gtest REQUIRED)
+  find_package(GTest REQUIRED)
 
-QT_WRAP_CPP(stdr_gui_node SAMPLE_MOC_SRCS include/stdr_gui/stdr_gui_controller.h)
-QT_WRAP_CPP(stdr_gui_node SAMPLE_MOC_SRCS include/stdr_gui/stdr_gui_connector.h)
-QT_WRAP_CPP(stdr_gui_node SAMPLE_MOC_SRCS include/stdr_gui/stdr_info_connector.h)
-QT_WRAP_CPP(stdr_gui_node SAMPLE_MOC_SRCS include/stdr_gui/stdr_map_connector.h)
-QT_WRAP_CPP(stdr_gui_node SAMPLE_MOC_SRCS include/stdr_gui/stdr_robot_creator/stdr_robot_creator_connector.h)
+  ament_add_gtest(test_map_transform test/test_map_transform.cpp)
+  target_link_libraries(test_map_transform ${PROJECT_NAME} GTest::gmock)
 
-#----------------------------------------------------------------------------------------------------#
+  ament_add_gtest(test_format_elapsed_time test/test_format_elapsed_time.cpp)
+  target_link_libraries(test_format_elapsed_time ${PROJECT_NAME} GTest::gmock)
+endif()
 
-#~ set(CMAKE_BUILD_TYPE Debug)
-set(CMAKE_BUILD_TYPE Release)
-
-add_executable(stdr_gui_node
-  src/stdr_gui/stdr_gui_node.cpp
-  src/stdr_gui/stdr_gui_application.cpp
-  src/stdr_gui/stdr_gui_connector.cpp
-  src/stdr_gui/stdr_gui_loader.cpp
-  src/stdr_gui/stdr_gui_controller.cpp
-  src/stdr_gui/stdr_info_connector.cpp
-  src/stdr_gui/stdr_info_loader.cpp
-  src/stdr_gui/stdr_map_connector.cpp
-  src/stdr_gui/stdr_map_loader.cpp
-  src/stdr_gui/stdr_tools.cpp
-  src/stdr_gui/stdr_robot_creator/stdr_kinematic_properties_loader.cpp
-  src/stdr_gui/stdr_robot_creator/stdr_laser_properties_loader.cpp
-  src/stdr_gui/stdr_robot_creator/stdr_sonar_properties_loader.cpp
-  src/stdr_gui/stdr_robot_creator/stdr_robot_properties_loader.cpp
-  src/stdr_gui/stdr_robot_creator/stdr_robot_footprint_loader.cpp
-  src/stdr_gui/stdr_robot_creator/stdr_rfid_antenna_properties_loader.cpp
-  src/stdr_gui/stdr_robot_creator/stdr_co2_sensor_properties_loader.cpp
-  src/stdr_gui/stdr_robot_creator/stdr_thermal_sensor_properties_loader.cpp
-  src/stdr_gui/stdr_robot_creator/stdr_sound_sensor_properties_loader.cpp
-  src/stdr_gui/stdr_robot_creator/stdr_robot_creator_loader.cpp
-  src/stdr_gui/stdr_robot_creator/stdr_robot_creator_connector.cpp
-  src/stdr_gui/stdr_gui_sensors/stdr_gui_robot.cpp
-  src/stdr_gui/stdr_gui_sensors/stdr_gui_laser.cpp
-  src/stdr_gui/stdr_gui_sensors/stdr_gui_sonar.cpp
-  src/stdr_gui/stdr_gui_sensors/stdr_gui_rfid.cpp
-  src/stdr_gui/stdr_gui_sensors/stdr_gui_co2.cpp
-  src/stdr_gui/stdr_gui_sensors/stdr_gui_thermal.cpp
-  src/stdr_gui/stdr_gui_sensors/stdr_gui_sound.cpp
-  src/stdr_gui/stdr_visualization/stdr_laser_visualization.cpp
-  src/stdr_gui/stdr_visualization/stdr_sonar_visualization.cpp
-  src/stdr_gui/stdr_visualization/stdr_robot_visualization.cpp
-  src/stdr_gui/stdr_map_metainformation/stdr_gui_source.cpp
-  src/stdr_gui/stdr_map_metainformation/stdr_gui_co2_source.cpp
-  src/stdr_gui/stdr_map_metainformation/stdr_gui_thermal_source.cpp
-  src/stdr_gui/stdr_map_metainformation/stdr_gui_rfid_tag.cpp
-  src/stdr_gui/stdr_map_metainformation/stdr_gui_sound_source.cpp
-  ${QT_FORMS_HPP} ${SAMPLE_MOC_SRCS}
-)
-add_dependencies(stdr_gui_node ${stdr_msgs_EXPORTED_TARGETS})  # Wait for stdr_msgs to build
-target_link_libraries(stdr_gui_node
-  ${catkin_LIBRARIES}
-  ${QT_LIBRARIES}
-)
-
-# Install launch files
-install(DIRECTORY launch resources
-  DESTINATION ${CATKIN_PACKAGE_SHARE_DESTINATION}
-)
-
-# Install excecutables
-install(TARGETS stdr_gui_node
-  RUNTIME DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
-)
-
+ament_package()
