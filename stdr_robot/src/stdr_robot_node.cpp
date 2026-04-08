@@ -31,6 +31,58 @@ constexpr double kSimulationDt = static_cast<double>(kSimulationPeriod.count()) 
   return msg;
 }
 
+/**
+ * @brief Simulate sensors and publish results.
+ *
+ * All sensor config types share the same simulate → convert → publish
+ * pattern. The compiler selects the correct `stdr_parser::to_ros_msg`
+ * overload for each measurement type.
+ */
+template <typename Config, typename PubPtr, typename Simulator, typename... ExtraArgs>
+void simulate_and_publish(const std::vector<Config>& configs, const std::vector<PubPtr>& pubs, Simulator& sim,
+                          const stdr_simulation::Pose2D& robot_pose, const std::string& robot_name,
+                          const rclcpp::Time& stamp, const ExtraArgs&... extra_args)
+{
+  for (std::size_t i = 0; i < configs.size(); ++i)
+  {
+    const Config& cfg = configs[i];
+    const stdr_simulation::Pose2D world_pose = stdr_simulation::compute_sensor_world_pose(robot_pose, cfg.pose);
+    // Types are unknowable at the template definition site; decltype makes the
+    // deduced types explicit without duplicating concrete type names.
+    using Measurement = decltype(sim.simulate(world_pose, cfg, extra_args...));
+    using RosMsg = decltype(stdr_parser::to_ros_msg(std::declval<Measurement>()));
+    const Measurement result = sim.simulate(world_pose, cfg, extra_args...);
+    RosMsg msg = stdr_parser::to_ros_msg(result);
+    msg.header.stamp = stamp;
+    msg.header.frame_id = robot_name + "/" + cfg.frame_id;
+    pubs[i]->publish(msg);
+  }
+}
+
+/** Create publishers and broadcast static TF for a set of sensor configs. */
+template <typename MsgT, typename Config>
+void create_sensor_publishers_and_tf(rclcpp::Node& node, const std::vector<Config>& configs,
+                                     std::vector<typename rclcpp::Publisher<MsgT>::SharedPtr>& pubs,
+                                     const std::string& robot_name, tf2_ros::StaticTransformBroadcaster& static_tf,
+                                     const rclcpp::Time& stamp)
+{
+  pubs.clear();
+  for (const Config& cfg : configs)
+  {
+    pubs.push_back(node.create_publisher<MsgT>(robot_name + "/" + cfg.frame_id, 10));
+
+    geometry_msgs::msg::TransformStamped tf_msg;
+    tf_msg.header.stamp = stamp;
+    tf_msg.header.frame_id = robot_name;
+    tf_msg.child_frame_id = robot_name + "/" + cfg.frame_id;
+    tf_msg.transform.translation.x = cfg.pose.x;
+    tf_msg.transform.translation.y = cfg.pose.y;
+    tf_msg.transform.translation.z = 0.0;
+    tf_msg.transform.rotation = yaw_to_quaternion(cfg.pose.theta);
+    static_tf.sendTransform(tf_msg);
+  }
+}
+
 }  // namespace
 
 // ─── Constructor ────────────────────────────────────────────────────────────
@@ -144,84 +196,23 @@ void StdrRobotNode::on_register_result(const rclcpp_action::ClientGoalHandle<Reg
 
 void StdrRobotNode::setup_publishers_and_tf()
 {
-  // Clear vectors to prevent duplicate publishers on re-configuration.
-  laser_pubs_.clear();
-  sonar_pubs_.clear();
-  rfid_pubs_.clear();
-  co2_pubs_.clear();
-  sound_pubs_.clear();
-  thermal_pubs_.clear();
-
   // Odometry publisher.
   odom_pub_ = create_publisher<nav_msgs::msg::Odometry>(robot_name_ + "/odom", 10);
 
-  // Per-sensor publishers.
-  for (const stdr_simulation::LaserConfig& cfg : config_.laser_sensors)
-  {
-    laser_pubs_.push_back(create_publisher<sensor_msgs::msg::LaserScan>(robot_name_ + "/" + cfg.frame_id, 10));
-  }
-  for (const stdr_simulation::SonarConfig& cfg : config_.sonar_sensors)
-  {
-    sonar_pubs_.push_back(create_publisher<sensor_msgs::msg::Range>(robot_name_ + "/" + cfg.frame_id, 10));
-  }
-  for (const stdr_simulation::RfidSensorConfig& cfg : config_.rfid_sensors)
-  {
-    rfid_pubs_.push_back(
-        create_publisher<stdr_msgs::msg::RfidSensorMeasurementMsg>(robot_name_ + "/" + cfg.frame_id, 10));
-  }
-  for (const stdr_simulation::CO2SensorConfig& cfg : config_.co2_sensors)
-  {
-    co2_pubs_.push_back(create_publisher<stdr_msgs::msg::CO2SensorMeasurementMsg>(robot_name_ + "/" + cfg.frame_id, 10));
-  }
-  for (const stdr_simulation::SoundSensorConfig& cfg : config_.sound_sensors)
-  {
-    sound_pubs_.push_back(
-        create_publisher<stdr_msgs::msg::SoundSensorMeasurementMsg>(robot_name_ + "/" + cfg.frame_id, 10));
-  }
-  for (const stdr_simulation::ThermalSensorConfig& cfg : config_.thermal_sensors)
-  {
-    thermal_pubs_.push_back(
-        create_publisher<stdr_msgs::msg::ThermalSensorMeasurementMsg>(robot_name_ + "/" + cfg.frame_id, 10));
-  }
-
-  // Static TF for sensor frames (robot → sensor).
   const rclcpp::Time stamp = now();
-  auto broadcast_sensor_tf = [&](const std::string& frame_id, const stdr_simulation::Pose2D& sensor_pose) {
-    geometry_msgs::msg::TransformStamped tf_msg;
-    tf_msg.header.stamp = stamp;
-    tf_msg.header.frame_id = robot_name_;
-    tf_msg.child_frame_id = robot_name_ + "/" + frame_id;
-    tf_msg.transform.translation.x = sensor_pose.x;
-    tf_msg.transform.translation.y = sensor_pose.y;
-    tf_msg.transform.translation.z = 0.0;
-    tf_msg.transform.rotation = yaw_to_quaternion(sensor_pose.theta);
-    static_tf_broadcaster_->sendTransform(tf_msg);
-  };
 
-  for (const stdr_simulation::LaserConfig& cfg : config_.laser_sensors)
-  {
-    broadcast_sensor_tf(cfg.frame_id, cfg.pose);
-  }
-  for (const stdr_simulation::SonarConfig& cfg : config_.sonar_sensors)
-  {
-    broadcast_sensor_tf(cfg.frame_id, cfg.pose);
-  }
-  for (const stdr_simulation::RfidSensorConfig& cfg : config_.rfid_sensors)
-  {
-    broadcast_sensor_tf(cfg.frame_id, cfg.pose);
-  }
-  for (const stdr_simulation::CO2SensorConfig& cfg : config_.co2_sensors)
-  {
-    broadcast_sensor_tf(cfg.frame_id, cfg.pose);
-  }
-  for (const stdr_simulation::SoundSensorConfig& cfg : config_.sound_sensors)
-  {
-    broadcast_sensor_tf(cfg.frame_id, cfg.pose);
-  }
-  for (const stdr_simulation::ThermalSensorConfig& cfg : config_.thermal_sensors)
-  {
-    broadcast_sensor_tf(cfg.frame_id, cfg.pose);
-  }
+  create_sensor_publishers_and_tf<sensor_msgs::msg::LaserScan>(*this, config_.laser_sensors, laser_pubs_, robot_name_,
+                                                               *static_tf_broadcaster_, stamp);
+  create_sensor_publishers_and_tf<sensor_msgs::msg::Range>(*this, config_.sonar_sensors, sonar_pubs_, robot_name_,
+                                                           *static_tf_broadcaster_, stamp);
+  create_sensor_publishers_and_tf<stdr_msgs::msg::RfidSensorMeasurementMsg>(
+      *this, config_.rfid_sensors, rfid_pubs_, robot_name_, *static_tf_broadcaster_, stamp);
+  create_sensor_publishers_and_tf<stdr_msgs::msg::CO2SensorMeasurementMsg>(*this, config_.co2_sensors, co2_pubs_,
+                                                                           robot_name_, *static_tf_broadcaster_, stamp);
+  create_sensor_publishers_and_tf<stdr_msgs::msg::SoundSensorMeasurementMsg>(
+      *this, config_.sound_sensors, sound_pubs_, robot_name_, *static_tf_broadcaster_, stamp);
+  create_sensor_publishers_and_tf<stdr_msgs::msg::ThermalSensorMeasurementMsg>(
+      *this, config_.thermal_sensors, thermal_pubs_, robot_name_, *static_tf_broadcaster_, stamp);
 }
 
 // ─── Subscription callbacks ─────────────────────────────────────────────────
@@ -366,21 +357,13 @@ void StdrRobotNode::integrate_motion(double dt)
 
 void StdrRobotNode::simulate_sensors(const rclcpp::Time& stamp)
 {
-  // Laser sensors (require map).
+  // Laser and sonar require a map.
   if (map_.has_value())
   {
-    for (std::size_t i = 0; i < config_.laser_sensors.size(); ++i)
-    {
-      const stdr_simulation::LaserConfig& cfg = config_.laser_sensors[i];
-      const stdr_simulation::Pose2D world_pose = stdr_simulation::compute_sensor_world_pose(pose_, cfg.pose);
-      const stdr_simulation::LaserScan scan = laser_sim_.simulate(world_pose, cfg, *map_);
-      sensor_msgs::msg::LaserScan msg = stdr_parser::to_ros_msg(scan);
-      msg.header.stamp = stamp;
-      msg.header.frame_id = robot_name_ + "/" + cfg.frame_id;
-      laser_pubs_[i]->publish(msg);
-    }
+    simulate_and_publish(config_.laser_sensors, laser_pubs_, laser_sim_, pose_, robot_name_, stamp, *map_);
 
-    // Sonar sensors (require map).
+    // Sonar uses a different conversion function (needs config for range metadata),
+    // so it cannot use the generic template.
     for (std::size_t i = 0; i < config_.sonar_sensors.size(); ++i)
     {
       const stdr_simulation::SonarConfig& cfg = config_.sonar_sensors[i];
@@ -393,53 +376,12 @@ void StdrRobotNode::simulate_sensors(const rclcpp::Time& stamp)
     }
   }
 
-  // RFID sensors.
-  for (std::size_t i = 0; i < config_.rfid_sensors.size(); ++i)
-  {
-    const stdr_simulation::RfidSensorConfig& cfg = config_.rfid_sensors[i];
-    const stdr_simulation::Pose2D world_pose = stdr_simulation::compute_sensor_world_pose(pose_, cfg.pose);
-    const stdr_simulation::RfidMeasurement meas = rfid_sim_.simulate(world_pose, cfg, rfid_tags_);
-    stdr_msgs::msg::RfidSensorMeasurementMsg msg = stdr_parser::to_ros_msg(meas);
-    msg.header.stamp = stamp;
-    msg.header.frame_id = robot_name_ + "/" + cfg.frame_id;
-    rfid_pubs_[i]->publish(msg);
-  }
-
-  // CO2 sensors.
-  for (std::size_t i = 0; i < config_.co2_sensors.size(); ++i)
-  {
-    const stdr_simulation::CO2SensorConfig& cfg = config_.co2_sensors[i];
-    const stdr_simulation::Pose2D world_pose = stdr_simulation::compute_sensor_world_pose(pose_, cfg.pose);
-    const stdr_simulation::CO2Measurement meas = co2_sim_.simulate(world_pose, cfg, co2_sources_);
-    stdr_msgs::msg::CO2SensorMeasurementMsg msg = stdr_parser::to_ros_msg(meas);
-    msg.header.stamp = stamp;
-    msg.header.frame_id = robot_name_ + "/" + cfg.frame_id;
-    co2_pubs_[i]->publish(msg);
-  }
-
-  // Thermal sensors.
-  for (std::size_t i = 0; i < config_.thermal_sensors.size(); ++i)
-  {
-    const stdr_simulation::ThermalSensorConfig& cfg = config_.thermal_sensors[i];
-    const stdr_simulation::Pose2D world_pose = stdr_simulation::compute_sensor_world_pose(pose_, cfg.pose);
-    const stdr_simulation::ThermalMeasurement meas = thermal_sim_.simulate(world_pose, cfg, thermal_sources_);
-    stdr_msgs::msg::ThermalSensorMeasurementMsg msg = stdr_parser::to_ros_msg(meas);
-    msg.header.stamp = stamp;
-    msg.header.frame_id = robot_name_ + "/" + cfg.frame_id;
-    thermal_pubs_[i]->publish(msg);
-  }
-
-  // Sound sensors.
-  for (std::size_t i = 0; i < config_.sound_sensors.size(); ++i)
-  {
-    const stdr_simulation::SoundSensorConfig& cfg = config_.sound_sensors[i];
-    const stdr_simulation::Pose2D world_pose = stdr_simulation::compute_sensor_world_pose(pose_, cfg.pose);
-    const stdr_simulation::SoundMeasurement meas = sound_sim_.simulate(world_pose, cfg, sound_sources_);
-    stdr_msgs::msg::SoundSensorMeasurementMsg msg = stdr_parser::to_ros_msg(meas);
-    msg.header.stamp = stamp;
-    msg.header.frame_id = robot_name_ + "/" + cfg.frame_id;
-    sound_pubs_[i]->publish(msg);
-  }
+  // Environment sensors do not require a map.
+  simulate_and_publish(config_.rfid_sensors, rfid_pubs_, rfid_sim_, pose_, robot_name_, stamp, rfid_tags_);
+  simulate_and_publish(config_.co2_sensors, co2_pubs_, co2_sim_, pose_, robot_name_, stamp, co2_sources_);
+  simulate_and_publish(config_.thermal_sensors, thermal_pubs_, thermal_sim_, pose_, robot_name_, stamp,
+                       thermal_sources_);
+  simulate_and_publish(config_.sound_sensors, sound_pubs_, sound_sim_, pose_, robot_name_, stamp, sound_sources_);
 }
 
 // ─── Publishing ─────────────────────────────────────────────────────────────
