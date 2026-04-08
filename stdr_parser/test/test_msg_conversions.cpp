@@ -2,9 +2,17 @@
 
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
+#include <sensor_msgs/msg/laser_scan.hpp>
+#include <sensor_msgs/msg/range.hpp>
+#include <stdr_msgs/msg/co2_sensor_measurement_msg.hpp>
+#include <stdr_msgs/msg/rfid_sensor_measurement_msg.hpp>
+#include <stdr_msgs/msg/sound_sensor_measurement_msg.hpp>
+#include <stdr_msgs/msg/thermal_sensor_measurement_msg.hpp>
 
-namespace stdr_parser {
-namespace {
+namespace stdr_parser
+{
+namespace
+{
 
 using ::testing::SizeIs;
 
@@ -12,7 +20,7 @@ using ::testing::SizeIs;
 
 TEST(MsgConversions, Pose2DRoundTrip)
 {
-  const stdr_simulation::Pose2D original{1.5, 2.5, 0.75};
+  const stdr_simulation::Pose2D original{ 1.5, 2.5, 0.75 };
   const geometry_msgs::msg::Pose2D msg = to_ros_msg(original);
 
   EXPECT_DOUBLE_EQ(msg.x, 1.5);
@@ -30,7 +38,7 @@ TEST(MsgConversions, Pose2DRoundTrip)
 
 TEST(MsgConversions, PointRoundTrip)
 {
-  const stdr_simulation::Point2D original{3.0, 4.0};
+  const stdr_simulation::Point2D original{ 3.0, 4.0 };
   const geometry_msgs::msg::Point msg = to_ros_point(original);
 
   EXPECT_DOUBLE_EQ(msg.x, 3.0);
@@ -72,7 +80,7 @@ TEST(MsgConversions, FootprintWithPoints)
 {
   stdr_simulation::Footprint fp;
   fp.radius = 0.35;
-  fp.points = {{1.0, 0.0}, {0.0, 1.0}, {-1.0, 0.0}};
+  fp.points = { { 1.0, 0.0 }, { 0.0, 1.0 }, { -1.0, 0.0 } };
 
   const stdr_msgs::msg::FootprintMsg msg = to_ros_msg(fp);
 
@@ -154,7 +162,7 @@ TEST(MsgConversions, LaserConfigRoundTrip)
   cfg.noise.std_dev = 0.01;
   cfg.frequency = 10.0;
   cfg.frame_id = "laser_frame";
-  cfg.pose = {0.1, 0.0, 0.0};
+  cfg.pose = { 0.1, 0.0, 0.0 };
 
   const stdr_msgs::msg::LaserSensorMsg msg = to_ros_msg(cfg);
 
@@ -190,7 +198,7 @@ TEST(MsgConversions, SonarConfigRoundTrip)
   cfg.noise.mean = 0.0;
   cfg.noise.std_dev = 0.0;
   cfg.frame_id = "sonar_frame";
-  cfg.pose = {0.0, 0.15, 1.57};
+  cfg.pose = { 0.0, 0.15, 1.57 };
 
   const stdr_msgs::msg::SonarSensorMsg msg = to_ros_msg(cfg);
 
@@ -219,7 +227,7 @@ TEST(MsgConversions, RfidSensorConfigRoundTrip)
   cfg.signal_cutoff = -70.0;
   cfg.frequency = 1.0;
   cfg.frame_id = "rfid_frame";
-  cfg.pose = {0.05, 0.0, 0.0};
+  cfg.pose = { 0.05, 0.0, 0.0 };
 
   const stdr_msgs::msg::RfidSensorMsg msg = to_ros_msg(cfg);
 
@@ -244,7 +252,7 @@ TEST(MsgConversions, CO2SensorConfigRoundTrip)
   cfg.max_range = 8.0;
   cfg.frequency = 2.0;
   cfg.frame_id = "co2_frame";
-  cfg.pose = {0.0, 0.05, 0.0};
+  cfg.pose = { 0.0, 0.05, 0.0 };
 
   const stdr_msgs::msg::CO2SensorMsg msg = to_ros_msg(cfg);
 
@@ -268,7 +276,7 @@ TEST(MsgConversions, SoundSensorConfigRoundTrip)
   cfg.frequency = 4.0;
   cfg.angle_span = 2.0;
   cfg.frame_id = "sound_frame";
-  cfg.pose = {0.1, 0.1, 0.0};
+  cfg.pose = { 0.1, 0.1, 0.0 };
 
   const stdr_msgs::msg::SoundSensorMsg msg = to_ros_msg(cfg);
 
@@ -294,7 +302,7 @@ TEST(MsgConversions, ThermalSensorConfigRoundTrip)
   cfg.frequency = 3.0;
   cfg.angle_span = 1.5;
   cfg.frame_id = "thermal_frame";
-  cfg.pose = {-0.1, 0.0, 3.14};
+  cfg.pose = { -0.1, 0.0, 3.14 };
 
   const stdr_msgs::msg::ThermalSensorMsg msg = to_ros_msg(cfg);
 
@@ -316,9 +324,9 @@ TEST(MsgConversions, ThermalSensorConfigRoundTrip)
 TEST(MsgConversions, RobotConfigRoundTrip)
 {
   stdr_simulation::RobotConfig cfg;
-  cfg.initial_pose = {1.0, 2.0, 0.5};
+  cfg.initial_pose = { 1.0, 2.0, 0.5 };
   cfg.footprint.radius = 0.2;
-  cfg.footprint.points = {{0.2, 0.0}, {-0.2, 0.0}};
+  cfg.footprint.points = { { 0.2, 0.0 }, { -0.2, 0.0 } };
   cfg.kinematic_model.type = "unicycle";
   cfg.kinematic_model.a_ux_ux = 1.0;
 
@@ -326,13 +334,13 @@ TEST(MsgConversions, RobotConfigRoundTrip)
   laser.max_range = 10.0;
   laser.num_rays = 360;
   laser.frame_id = "laser0";
-  laser.pose = {0.1, 0.0, 0.0};
+  laser.pose = { 0.1, 0.0, 0.0 };
   cfg.laser_sensors.push_back(laser);
 
   stdr_simulation::SonarConfig sonar;
   sonar.max_range = 3.0;
   sonar.frame_id = "sonar0";
-  sonar.pose = {-0.1, 0.0, 3.14};
+  sonar.pose = { -0.1, 0.0, 3.14 };
   cfg.sonar_sensors.push_back(sonar);
 
   const stdr_msgs::msg::RobotMsg msg = to_ros_msg(cfg);
@@ -366,7 +374,7 @@ TEST(MsgConversions, RfidTagRoundTrip)
   stdr_simulation::RfidTag tag;
   tag.tag_id = "tag42";
   tag.message = "hello";
-  tag.pose = {3.0, 4.0, 0.0};
+  tag.pose = { 3.0, 4.0, 0.0 };
 
   const stdr_msgs::msg::RfidTag msg = to_ros_msg(tag);
 
@@ -389,7 +397,7 @@ TEST(MsgConversions, CO2SourceRoundTrip)
   stdr_simulation::CO2Source src;
   src.id = "co2_src1";
   src.ppm = 400.0;
-  src.pose = {5.0, 6.0, 0.0};
+  src.pose = { 5.0, 6.0, 0.0 };
 
   const stdr_msgs::msg::CO2Source msg = to_ros_msg(src);
 
@@ -411,7 +419,7 @@ TEST(MsgConversions, SoundSourceRoundTrip)
   stdr_simulation::SoundSource src;
   src.id = "sound_src1";
   src.dbs = 65.0;
-  src.pose = {1.5, 2.5, 0.0};
+  src.pose = { 1.5, 2.5, 0.0 };
 
   const stdr_msgs::msg::SoundSource msg = to_ros_msg(src);
 
@@ -432,7 +440,7 @@ TEST(MsgConversions, ThermalSourceRoundTrip)
   stdr_simulation::ThermalSource src;
   src.id = "thermal_src1";
   src.degrees = 37.5;
-  src.pose = {0.5, 1.5, 0.0};
+  src.pose = { 0.5, 1.5, 0.0 };
 
   const stdr_msgs::msg::ThermalSource msg = to_ros_msg(src);
 
@@ -465,6 +473,112 @@ TEST(MsgConversions, FloatPrecisionRoundTrip)
   EXPECT_NEAR(roundtripped.max_range, 10.123456789, 1e-4);
   // Pose2D uses double throughout, so exact equality holds.
   EXPECT_DOUBLE_EQ(roundtripped.pose.x, 0.0);
+}
+
+// --- LaserScan measurement ---
+
+TEST(MsgConversions, LaserScanToRosMsg)
+{
+  stdr_simulation::LaserScan scan;
+  scan.angle_min = -1.57;
+  scan.angle_max = 1.57;
+  scan.angle_increment = 0.01;
+  scan.range_min = 0.1;
+  scan.range_max = 10.0;
+  scan.ranges = { 1.0f, 2.0f, 3.0f };
+
+  const sensor_msgs::msg::LaserScan msg = to_ros_msg(scan);
+
+  EXPECT_NEAR(msg.angle_min, -1.57f, 1e-5f);
+  EXPECT_NEAR(msg.angle_max, 1.57f, 1e-5f);
+  EXPECT_NEAR(msg.angle_increment, 0.01f, 1e-5f);
+  EXPECT_NEAR(msg.range_min, 0.1f, 1e-5f);
+  EXPECT_NEAR(msg.range_max, 10.0f, 1e-5f);
+  ASSERT_THAT(msg.ranges, SizeIs(3));
+  EXPECT_FLOAT_EQ(msg.ranges[0], 1.0f);
+  EXPECT_FLOAT_EQ(msg.ranges[1], 2.0f);
+  EXPECT_FLOAT_EQ(msg.ranges[2], 3.0f);
+}
+
+// --- SonarScan measurement ---
+
+TEST(MsgConversions, SonarScanToRosMsg)
+{
+  stdr_simulation::SonarScan scan;
+  scan.range = 2.5;
+
+  stdr_simulation::SonarConfig config;
+  config.cone_angle = 0.5;
+  config.min_range = 0.2;
+  config.max_range = 5.0;
+
+  const sensor_msgs::msg::Range msg = to_ros_sonar_msg(scan, config);
+
+  EXPECT_EQ(msg.radiation_type, sensor_msgs::msg::Range::ULTRASOUND);
+  EXPECT_NEAR(msg.field_of_view, 0.5f, 1e-5f);
+  EXPECT_NEAR(msg.min_range, 0.2f, 1e-5f);
+  EXPECT_NEAR(msg.max_range, 5.0f, 1e-5f);
+  EXPECT_NEAR(msg.range, 2.5f, 1e-5f);
+}
+
+// --- RFID measurement ---
+
+TEST(MsgConversions, RfidMeasurementToRosMsg)
+{
+  stdr_simulation::RfidMeasurement meas;
+  meas.tag_ids = { "tag1", "tag2" };
+  meas.tag_messages = { "msg1", "msg2" };
+  meas.tag_dbs = { 1.0, 2.0 };
+
+  const stdr_msgs::msg::RfidSensorMeasurementMsg msg = to_ros_msg(meas);
+
+  ASSERT_THAT(msg.rfid_tags_ids, SizeIs(2));
+  EXPECT_EQ(msg.rfid_tags_ids[0], "tag1");
+  EXPECT_EQ(msg.rfid_tags_ids[1], "tag2");
+  ASSERT_THAT(msg.rfid_tags_msgs, SizeIs(2));
+  EXPECT_EQ(msg.rfid_tags_msgs[0], "msg1");
+  EXPECT_EQ(msg.rfid_tags_msgs[1], "msg2");
+  ASSERT_THAT(msg.rfid_tags_dbs, SizeIs(2));
+  EXPECT_NEAR(msg.rfid_tags_dbs[0], 1.0f, 1e-5f);
+  EXPECT_NEAR(msg.rfid_tags_dbs[1], 2.0f, 1e-5f);
+}
+
+// --- CO2 measurement ---
+
+TEST(MsgConversions, CO2MeasurementToRosMsg)
+{
+  stdr_simulation::CO2Measurement meas;
+  meas.ppm = 412.5;
+
+  const stdr_msgs::msg::CO2SensorMeasurementMsg msg = to_ros_msg(meas);
+
+  EXPECT_NEAR(msg.co2_ppm, 412.5f, 0.1f);
+}
+
+// --- Sound measurement ---
+
+TEST(MsgConversions, SoundMeasurementToRosMsg)
+{
+  stdr_simulation::SoundMeasurement meas;
+  meas.dbs = 65.0;
+
+  const stdr_msgs::msg::SoundSensorMeasurementMsg msg = to_ros_msg(meas);
+
+  EXPECT_NEAR(msg.sound_dbs, 65.0f, 1e-3f);
+}
+
+// --- Thermal measurement ---
+
+TEST(MsgConversions, ThermalMeasurementToRosMsg)
+{
+  stdr_simulation::ThermalMeasurement meas;
+  meas.source_degrees = { 37.5, 42.0 };
+
+  const stdr_msgs::msg::ThermalSensorMeasurementMsg msg = to_ros_msg(meas);
+
+  ASSERT_THAT(msg.thermal_source_degrees, SizeIs(2));
+  EXPECT_NEAR(msg.thermal_source_degrees[0], 37.5f, 1e-3f);
+  EXPECT_NEAR(msg.thermal_source_degrees[1], 42.0f, 1e-3f);
 }
 
 }  // namespace

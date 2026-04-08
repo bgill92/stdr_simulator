@@ -231,11 +231,11 @@ void StdrServerNode::handle_load_external_map(const stdr_msgs::srv::LoadExternal
 void StdrServerNode::handle_move_robot(const stdr_msgs::srv::MoveRobot::Request::SharedPtr /*request*/,
                                        stdr_msgs::srv::MoveRobot::Response::SharedPtr /*response*/)
 {
-  // FIXME-CLAUDE: NOT IMPLEMENTED - per-robot MoveRobot routing deferred to Phase 6
-  // MoveRobot.srv only carries new_pose, not a robot name. In ROS1 the caller
-  // invoked a per-robot service endpoint. Per-robot routing will be wired in
-  // Phase 6 when stdr_robot nodes are available.
-  RCLCPP_WARN(get_logger(), "handle_move_robot not yet implemented — deferred to Phase 6");
+  // MoveRobot.srv only carries new_pose without a robot name. Per-robot
+  // repositioning is handled by each robot's own {robot_name}/replace
+  // service. This server-level endpoint is retained for API compatibility
+  // but has no way to route to a specific robot.
+  RCLCPP_WARN(get_logger(), "Use per-robot service '{robot_name}/replace' instead of server-level move_robot");
 }
 
 // ─── Environment source callbacks ───────────────────────────────────────────
@@ -403,7 +403,10 @@ void StdrServerNode::handle_spawn_accepted(const std::shared_ptr<SpawnGoalHandle
     const stdr_simulation::RobotConfig config = stdr_parser::from_ros_msg(robot_msg);
     const std::string name = world_model_.add_robot(config);
 
-    // FIXME-CLAUDE: NOT IMPLEMENTED - component container loading deferred to Phase 6
+    // Robot nodes are loaded externally (by launch files or a component
+    // container orchestrator), not by the server. The spawn action registers
+    // the robot in the world model; the robot node then calls RegisterRobot
+    // to retrieve its configuration.
 
     auto result = std::make_shared<SpawnRobot::Result>();
     result->indexed_description.name = name;
@@ -433,7 +436,8 @@ void StdrServerNode::handle_delete_accepted(const std::shared_ptr<DeleteGoalHand
     const std::lock_guard<std::mutex> lock(mutex_);
     const std::string& name = goal_handle->get_goal()->name;
 
-    // FIXME-CLAUDE: NOT IMPLEMENTED - component container teardown deferred to Phase 6
+    // Robot node teardown is the orchestrator's responsibility. The server
+    // only removes the robot from the world model.
 
     world_model_.remove_robot(name);
 

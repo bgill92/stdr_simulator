@@ -8,6 +8,7 @@ find_package(tl_expected REQUIRED)
 add_library(
   ${PROJECT_NAME}
   src/simulation_engine.cpp
+  src/geometry_utils.cpp
   src/config_loader.cpp
   src/world/world_model.cpp
   src/collision/collision_checker.cpp

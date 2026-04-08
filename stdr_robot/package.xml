@@ -1,35 +1,32 @@
 <?xml version="1.0"?>
-<package format="2">
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
   <name>stdr_robot</name>
-  <version>0.3.2</version>
-  <description>Provides robot, sensor implementation, using nodelets for stdr_server to load them.</description>
+  <version>1.0.0</version>
+  <description>ROS2 composable robot node for the STDR Simulator. Each instance simulates a single robot with motion integration, collision checking, and sensor publishing.</description>
 
-  <maintainer email="zalidis@gmail.com">Chris Zalidis</maintainer>
+  <maintainer email="bilal@todo.com">Bilal Gill</maintainer>
+  <license>GPL-3.0-only</license>
 
-  <license>GPLv3</license>
+  <buildtool_depend>ament_cmake</buildtool_depend>
 
-  <url type="website">http://stdr-simulator-ros-pkg.github.io</url>
-  <url type="bugtracker">https://github.com/stdr-simulator-ros-pkg/stdr_simulator/issues</url>
-  <url type="repository">https://github.com/stdr-simulator-ros-pkg/stdr_simulator</url>
-
-  <author>Manos Tsardoulias, Chris Zalidis, Aris Thallas</author>
-
-  <buildtool_depend>catkin</buildtool_depend>
-
-  <depend>roscpp</depend>
-  <depend>tf</depend>
-  <depend>sensor_msgs</depend>
-  <depend>stdr_msgs</depend>
-  <depend>stdr_parser</depend>
+  <depend>rclcpp</depend>
+  <depend>rclcpp_action</depend>
+  <depend>rclcpp_components</depend>
+  <depend>tf2</depend>
+  <depend>tf2_ros</depend>
   <depend>nav_msgs</depend>
-  <depend>nodelet</depend>
-  <depend>actionlib</depend>
+  <depend>sensor_msgs</depend>
   <depend>geometry_msgs</depend>
+  <depend>stdr_msgs</depend>
+  <depend>stdr_simulation</depend>
+  <depend>stdr_parser</depend>
 
-  <exec_depend>stdr_server</exec_depend>
+  <exec_depend>rosidl_default_runtime</exec_depend>
+
+  <test_depend>ament_cmake_gtest</test_depend>
 
   <export>
-    <nodelet plugin="${prefix}/robot_plugins.xml" />
+    <build_type>ament_cmake</build_type>
   </export>
-
 </package>
