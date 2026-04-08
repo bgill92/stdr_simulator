@@ -210,7 +210,8 @@ void MapPanel::render_robots(const SimulationSnapshot& snapshot)
     // Determine display radius: use config radius if available, else default.
     const float world_radius =
         (robot.config.footprint.radius > 0.0) ? static_cast<float>(robot.config.footprint.radius) : kRobotRadius;
-    const float screen_radius = std::max(world_radius * transform_.get_zoom(), kMinScreenRadius);
+    const float screen_radius = std::max(
+        world_radius / static_cast<float>(transform_.get_resolution()) * transform_.get_zoom(), kMinScreenRadius);
 
     const bool is_selected = (robot.name == selected_robot_);
     const ImU32 fill_color = is_selected ? IM_COL32(255, 200, 0, 180) : IM_COL32(0, 120, 255, 180);
@@ -222,7 +223,8 @@ void MapPanel::render_robots(const SimulationSnapshot& snapshot)
     draw_list->AddCircleFilled(center, kCenterDotRadius, IM_COL32(255, 0, 0, 255));
 
     // Draw orientation arrow.
-    const float arrow_screen = std::max(kArrowLength * transform_.get_zoom(), kMinArrowLength);
+    const float arrow_screen = std::max(
+        kArrowLength / static_cast<float>(transform_.get_resolution()) * transform_.get_zoom(), kMinArrowLength);
     const ImVec2 tip{ center.x + arrow_screen * static_cast<float>(std::cos(robot.pose.theta)),
                       center.y - arrow_screen * static_cast<float>(std::sin(robot.pose.theta)) };
     draw_list->AddLine(center, tip, IM_COL32(255, 0, 0, 255), 2.5f);

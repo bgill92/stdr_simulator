@@ -99,4 +99,9 @@ ScreenPoint MapTransform::get_offset() const
   return ScreenPoint{ .x = offset_x_, .y = offset_y_ };
 }
 
+double MapTransform::get_resolution() const
+{
+  return map_resolution_;
+}
+
 }  // namespace stdr_gui
