@@ -214,19 +214,18 @@ void MapPanel::render_robots(const SimulationSnapshot& snapshot)
 
     const bool is_selected = (robot.name == selected_robot_);
     const ImU32 fill_color = is_selected ? IM_COL32(255, 200, 0, 180) : IM_COL32(0, 120, 255, 180);
-    const ImU32 border_color = is_selected ? IM_COL32(255, 150, 0, 255) : IM_COL32(0, 80, 200, 255);
 
     draw_list->AddCircleFilled(center, screen_radius, fill_color);
-    draw_list->AddCircle(center, screen_radius, border_color, 32, 3.0f);
+    draw_list->AddCircle(center, screen_radius, IM_COL32(0, 200, 0, 255), 32, 1.5f);
 
     // Center dot for visibility at any zoom level.
-    draw_list->AddCircleFilled(center, kCenterDotRadius, IM_COL32(255, 255, 255, 255));
+    draw_list->AddCircleFilled(center, kCenterDotRadius, IM_COL32(255, 0, 0, 255));
 
     // Draw orientation arrow.
     const float arrow_screen = std::max(kArrowLength * transform_.get_zoom(), kMinArrowLength);
     const ImVec2 tip{ center.x + arrow_screen * static_cast<float>(std::cos(robot.pose.theta)),
                       center.y - arrow_screen * static_cast<float>(std::sin(robot.pose.theta)) };
-    draw_list->AddLine(center, tip, IM_COL32(255, 255, 0, 255), 2.5f);
+    draw_list->AddLine(center, tip, IM_COL32(255, 0, 0, 255), 2.5f);
 
     // Robot name label.
     draw_list->AddText(ImVec2(center.x + screen_radius + 3.0f, center.y - 8.0f), IM_COL32(255, 255, 255, 255),
