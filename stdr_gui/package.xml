@@ -1,34 +1,21 @@
 <?xml version="1.0"?>
-<package format="2">
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
   <name>stdr_gui</name>
-  <version>0.3.2</version>
-  <description>A gui in Qt for visualizing purposes in STDR Simulator.</description>
+  <version>1.0.0</version>
+  <description>ImGui-based GUI library for STDR Simulator with no ROS dependencies.</description>
 
-  <maintainer email="zalidis@gmail.com">Chris Zalidis</maintainer>
+  <maintainer email="bilal@todo.com">Bilal Gill</maintainer>
+  <license>GPL-3.0-only</license>
 
-  <license>GPLv3</license>
+  <buildtool_depend>ament_cmake</buildtool_depend>
 
-  <url type="website">http://stdr-simulator-ros-pkg.github.io</url>
-  <url type="bugtracker">https://github.com/stdr-simulator-ros-pkg/stdr_simulator/issues</url>
-  <url type="repository">https://github.com/stdr-simulator-ros-pkg/stdr_simulator</url>
-
-  <author>Manos Tsardoulias</author>
-
-  <buildtool_depend>catkin</buildtool_depend>
-
-  <depend>roscpp</depend>
-  <depend>roslib</depend>
-  <depend>tf</depend>
-  <depend>stdr_msgs</depend>
-  <depend>stdr_server</depend>
-  <depend>stdr_robot</depend>
-  <depend>stdr_parser</depend>
-  <depend>sensor_msgs</depend>
-  <depend>nav_msgs</depend>
-
-  <build_depend>libqt4-dev</build_depend>
-  <exec_depend>libqt4</exec_depend>
+  <depend>stdr_simulation</depend>
+  <build_depend>imgui</build_depend>
+  <build_depend>implot</build_depend>
+  <build_depend>libgl-devel</build_depend>
 
   <export>
+    <build_type>ament_cmake</build_type>
   </export>
 </package>
