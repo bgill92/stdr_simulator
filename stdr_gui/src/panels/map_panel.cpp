@@ -12,6 +12,7 @@
 #include <cmath>
 #include <cstdint>
 #include <cstring>
+#include <format>
 #include <limits>
 #include <string>
 #include <vector>
@@ -63,6 +64,7 @@ void MapPanel::render(const SimulationSnapshot& snapshot, SimulatorBackend& back
   render_robots(snapshot);
   render_sensor_overlays(snapshot);
   render_environment_sources(snapshot);
+  render_map_info_overlay(snapshot);
   render_context_menu(backend, snapshot);
 
   ImGui::End();
@@ -387,6 +389,59 @@ void MapPanel::render_environment_sources(const SimulationSnapshot& snapshot)
     draw_list->AddText(ImVec2(center.x + kSourceRadius + 2.0f, center.y - 6.0f), IM_COL32(80, 120, 255, 255),
                        src.id.c_str());
   }
+}
+
+void MapPanel::render_map_info_overlay(const SimulationSnapshot& snapshot)
+{
+  const stdr_simulation::OccupancyGrid& grid = snapshot.map;
+  if (grid.width <= 0 || grid.height <= 0)
+  {
+    return;
+  }
+
+  // Semi-transparent overlay in the bottom-left corner of the map window.
+  const ImVec2 window_pos = ImGui::GetWindowPos();
+  const ImVec2 window_size = ImGui::GetWindowSize();
+
+  constexpr float kPadding = 8.0f;
+  constexpr float kOverlayWidth = 220.0f;
+  constexpr float kOverlayHeight = 80.0f;
+
+  const ImVec2 overlay_pos{ window_pos.x + kPadding, window_pos.y + window_size.y - kOverlayHeight - kPadding };
+  const ImVec2 overlay_end{ overlay_pos.x + kOverlayWidth, overlay_pos.y + kOverlayHeight };
+
+  ImDrawList* draw_list = ImGui::GetWindowDrawList();
+  draw_list->AddRectFilled(overlay_pos, overlay_end, IM_COL32(0, 0, 0, 180), 4.0f);
+
+  const float world_w = static_cast<float>(grid.width) * static_cast<float>(grid.resolution);
+  const float world_h = static_cast<float>(grid.height) * static_cast<float>(grid.resolution);
+
+  const float text_x = overlay_pos.x + 6.0f;
+  float text_y = overlay_pos.y + 4.0f;
+  constexpr float kLineHeight = 15.0f;
+
+  const ImU32 text_color = IM_COL32(220, 220, 220, 255);
+  const ImU32 label_color = IM_COL32(160, 160, 160, 255);
+
+  if (!snapshot.map_name.empty())
+  {
+    draw_list->AddText(ImVec2(text_x, text_y), label_color, snapshot.map_name.c_str());
+    text_y += kLineHeight;
+  }
+
+  // Resolution line.
+  const std::string res_text = std::format("Resolution: {:.4f} m/px", grid.resolution);
+  draw_list->AddText(ImVec2(text_x, text_y), text_color, res_text.c_str());
+  text_y += kLineHeight;
+
+  // Dimensions in pixels.
+  const std::string dim_text = std::format("Size: {}x{} px", grid.width, grid.height);
+  draw_list->AddText(ImVec2(text_x, text_y), text_color, dim_text.c_str());
+  text_y += kLineHeight;
+
+  // Dimensions in meters.
+  const std::string world_text = std::format("World: {:.2f}x{:.2f} m", world_w, world_h);
+  draw_list->AddText(ImVec2(text_x, text_y), text_color, world_text.c_str());
 }
 
 void MapPanel::render_context_menu(SimulatorBackend& backend, const SimulationSnapshot& snapshot)

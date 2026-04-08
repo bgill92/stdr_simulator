@@ -21,6 +21,7 @@ namespace stdr_gui
 struct SimulationSnapshot
 {
   stdr_simulation::OccupancyGrid map;
+  std::string map_name;  // Filename of the loaded map (e.g., "maze1.yaml").
   std::vector<stdr_simulation::world::RobotState> robots;
   std::unordered_map<std::string, stdr_simulation::RobotSensorData> sensor_data;
   std::vector<stdr_simulation::RfidTag> rfid_tags;

@@ -35,6 +35,7 @@ tl::expected<void, std::string> StandaloneBackend::load_map(const std::string& y
   {
     const std::lock_guard<std::mutex> lock(sim_mutex_);
     world_model_.set_map(result.value());
+    map_name_ = std::filesystem::path(yaml_path).filename().string();
   }
   push_message("Loaded map: " + yaml_path);
   return {};
@@ -132,6 +133,7 @@ std::shared_ptr<const stdr_gui::SimulationSnapshot> StandaloneBackend::get_snaps
       }
     }
 
+    snapshot.map_name = map_name_;
     snapshot.rfid_tags = world_model_.get_rfid_tags();
     snapshot.co2_sources = world_model_.get_co2_sources();
     snapshot.thermal_sources = world_model_.get_thermal_sources();

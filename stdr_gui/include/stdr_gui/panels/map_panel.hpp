@@ -40,6 +40,7 @@ private:
   void render_robots(const SimulationSnapshot& snapshot);
   void render_sensor_overlays(const SimulationSnapshot& snapshot);
   void render_environment_sources(const SimulationSnapshot& snapshot);
+  void render_map_info_overlay(const SimulationSnapshot& snapshot);
   void render_context_menu(SimulatorBackend& backend, const SimulationSnapshot& snapshot);
 
   MapTransform transform_;

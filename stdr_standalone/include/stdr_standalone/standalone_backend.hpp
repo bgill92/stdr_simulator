@@ -51,6 +51,8 @@ private:
   std::atomic<double> speed_{ 1.0 };
   double elapsed_time_{ 0.0 };
 
+  std::string map_name_;
+
   std::mutex msg_mutex_;
   std::vector<std::string> messages_;
 };
