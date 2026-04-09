@@ -7,6 +7,7 @@
 #include <tl_expected/expected.hpp>
 
 #include <chrono>
+#include <cstdlib>
 #include <filesystem>
 #include <thread>
 
@@ -44,7 +45,9 @@ tl::expected<void, std::string> StandaloneBackend::load_map(const std::string& y
 tl::expected<std::string, std::string> StandaloneBackend::spawn_robot(const std::string& yaml_path,
                                                                       const stdr_simulation::Pose2D& pose)
 {
-  const std::string base_dir = std::filesystem::path(yaml_path).parent_path().string();
+  const char* env_resources = std::getenv("STDR_RESOURCES_DIR");
+  const std::string base_dir =
+      (env_resources != nullptr) ? std::string(env_resources) : std::filesystem::path(yaml_path).parent_path().string();
   const tl::expected<stdr_simulation::RobotConfig, std::string> config_result =
       stdr_simulation::load_robot_config(yaml_path, base_dir);
   if (!config_result)
