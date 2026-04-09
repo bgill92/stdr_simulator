@@ -216,6 +216,10 @@ void MapPanel::render_robots(const SimulationSnapshot& snapshot)
 
     const bool has_polygon = !robot.config.footprint.points.empty();
 
+    // For polygon robots the centroid is a better visual anchor than the robot origin,
+    // which may sit at the edge of the shape (e.g. trin_bot).
+    ImVec2 draw_center = center;
+
     if (has_polygon)
     {
       // Build screen-space polygon vertices by rotating each local-frame point
@@ -226,8 +230,6 @@ void MapPanel::render_robots(const SimulationSnapshot& snapshot)
       const double cos_theta = std::cos(robot.pose.theta);
       const double sin_theta = std::sin(robot.pose.theta);
 
-      float max_screen_dist = 0.0f;
-
       for (const stdr_simulation::Point2D& pt : robot.config.footprint.points)
       {
         // Rotate point by robot heading, then translate to world position.
@@ -237,13 +239,29 @@ void MapPanel::render_robots(const SimulationSnapshot& snapshot)
         const ScreenPoint vsp = transform_.world_to_screen(wx, wy);
         const ImVec2 vertex{ window_pos.x + vsp.x, window_pos.y + vsp.y };
         poly_screen.push_back(vertex);
-
-        // Track max distance from center for arrow length and selection.
-        const float dx = vertex.x - center.x;
-        const float dy = vertex.y - center.y;
-        max_screen_dist = std::max(max_screen_dist, std::sqrt(dx * dx + dy * dy));
       }
 
+      // Compute screen-space centroid of the polygon.
+      ImVec2 centroid{ 0.0f, 0.0f };
+      for (const ImVec2& v : poly_screen)
+      {
+        centroid.x += v.x;
+        centroid.y += v.y;
+      }
+      centroid.x /= static_cast<float>(poly_screen.size());
+      centroid.y /= static_cast<float>(poly_screen.size());
+
+      draw_center = centroid;
+
+      // Measure arrow length and selection radius from the centroid so they
+      // reflect the actual visual extent of the shape, not the robot origin.
+      float max_screen_dist = 0.0f;
+      for (const ImVec2& v : poly_screen)
+      {
+        const float dx = v.x - centroid.x;
+        const float dy = v.y - centroid.y;
+        max_screen_dist = std::max(max_screen_dist, std::sqrt(dx * dx + dy * dy));
+      }
       screen_radius = std::max(max_screen_dist, kMinScreenRadius);
 
       // Draw filled polygon and outline.
@@ -264,16 +282,16 @@ void MapPanel::render_robots(const SimulationSnapshot& snapshot)
     }
 
     // Center dot for visibility at any zoom level.
-    draw_list->AddCircleFilled(center, kCenterDotRadius, IM_COL32(255, 0, 0, 255));
+    draw_list->AddCircleFilled(draw_center, kCenterDotRadius, IM_COL32(255, 0, 0, 255));
 
     // Draw orientation arrow from center to the footprint edge.
     const float arrow_screen = screen_radius;
-    const ImVec2 tip{ center.x + arrow_screen * static_cast<float>(std::cos(robot.pose.theta)),
-                      center.y - arrow_screen * static_cast<float>(std::sin(robot.pose.theta)) };
-    draw_list->AddLine(center, tip, IM_COL32(255, 0, 0, 255), 2.5f);
+    const ImVec2 tip{ draw_center.x + arrow_screen * static_cast<float>(std::cos(robot.pose.theta)),
+                      draw_center.y - arrow_screen * static_cast<float>(std::sin(robot.pose.theta)) };
+    draw_list->AddLine(draw_center, tip, IM_COL32(255, 0, 0, 255), 2.5f);
 
     // Robot name label.
-    draw_list->AddText(ImVec2(center.x + screen_radius + 3.0f, center.y - 8.0f), IM_COL32(255, 255, 255, 255),
+    draw_list->AddText(ImVec2(draw_center.x + screen_radius + 3.0f, draw_center.y - 8.0f), IM_COL32(255, 255, 255, 255),
                        robot.name.c_str());
 
     // Left-click selection: pick the robot closest to the click within threshold.
