@@ -11,6 +11,7 @@
 
 #include <algorithm>
 #include <numbers>
+#include <unordered_set>
 
 namespace stdr_gui
 {
@@ -121,9 +122,19 @@ void GuiApp::render_frame(const SimulationSnapshot& snapshot)
   const float left_w = total_w * (1.0f - kRightPanelFraction);
   const float right_w = total_w * kRightPanelFraction;
 
+  // Build the set of robots with sensor visualization enabled.
+  std::unordered_set<std::string> sensors_visible;
+  for (const stdr_simulation::world::RobotState& robot : snapshot.robots)
+  {
+    if (robot_info_panel_.show_sensors_for(robot.name))
+    {
+      sensors_visible.insert(robot.name);
+    }
+  }
+
   ImGui::SetNextWindowPos(ImVec2(0.0f, content_y), ImGuiCond_Always);
   ImGui::SetNextWindowSize(ImVec2(left_w, content_h), ImGuiCond_Always);
-  map_panel_.render(snapshot, *backend_);
+  map_panel_.render(snapshot, *backend_, sensors_visible);
 
   ImGui::SetNextWindowPos(ImVec2(left_w, content_y), ImGuiCond_Always);
   ImGui::SetNextWindowSize(ImVec2(right_w, content_h), ImGuiCond_Always);

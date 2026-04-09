@@ -5,6 +5,7 @@
 
 #include <cstdint>
 #include <string>
+#include <unordered_set>
 #include <vector>
 
 typedef unsigned int GLuint;
@@ -28,7 +29,8 @@ public:
   MapPanel& operator=(MapPanel&&) = delete;
 
   /** @brief Render the map panel as a dockable ImGui window. */
-  void render(const SimulationSnapshot& snapshot, SimulatorBackend& backend);
+  void render(const SimulationSnapshot& snapshot, SimulatorBackend& backend,
+              const std::unordered_set<std::string>& show_sensors_for);
 
   /** @brief Get the currently selected robot name (empty if none). */
   [[nodiscard]] const std::string& selected_robot() const;
@@ -38,7 +40,8 @@ private:
   void handle_input(SimulatorBackend& backend);
   void render_map_image();
   void render_robots(const SimulationSnapshot& snapshot);
-  void render_sensor_overlays(const SimulationSnapshot& snapshot);
+  void render_sensor_overlays(const SimulationSnapshot& snapshot,
+                              const std::unordered_set<std::string>& show_sensors_for);
   void render_environment_sources(const SimulationSnapshot& snapshot);
   void render_map_info_overlay(const SimulationSnapshot& snapshot);
   void render_context_menu(SimulatorBackend& backend, const SimulationSnapshot& snapshot);

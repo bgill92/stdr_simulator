@@ -15,6 +15,7 @@
 #include <format>
 #include <limits>
 #include <string>
+#include <unordered_set>
 #include <vector>
 
 namespace stdr_gui
@@ -43,7 +44,8 @@ const std::string& MapPanel::selected_robot() const
   return selected_robot_;
 }
 
-void MapPanel::render(const SimulationSnapshot& snapshot, SimulatorBackend& backend)
+void MapPanel::render(const SimulationSnapshot& snapshot, SimulatorBackend& backend,
+                      const std::unordered_set<std::string>& show_sensors_for)
 {
   ImGui::Begin("Map", nullptr, ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoCollapse);
 
@@ -60,7 +62,7 @@ void MapPanel::render(const SimulationSnapshot& snapshot, SimulatorBackend& back
   handle_input(backend);
   render_map_image();
   render_robots(snapshot);
-  render_sensor_overlays(snapshot);
+  render_sensor_overlays(snapshot, show_sensors_for);
   render_environment_sources(snapshot);
   render_map_info_overlay(snapshot);
   render_context_menu(backend, snapshot);
@@ -310,23 +312,10 @@ void MapPanel::render_robots(const SimulationSnapshot& snapshot)
   }
 }
 
-void MapPanel::render_sensor_overlays(const SimulationSnapshot& snapshot)
+void MapPanel::render_sensor_overlays(const SimulationSnapshot& snapshot,
+                                      const std::unordered_set<std::string>& show_sensors_for)
 {
-  if (selected_robot_.empty())
-  {
-    return;
-  }
-
-  const auto robot_it = std::ranges::find_if(snapshot.robots, [&](const stdr_simulation::world::RobotState& r) {
-    return r.name == selected_robot_;
-  });
-  if (robot_it == snapshot.robots.end())
-  {
-    return;
-  }
-
-  const auto data_it = snapshot.sensor_data.find(selected_robot_);
-  if (data_it == snapshot.sensor_data.end())
+  if (show_sensors_for.empty())
   {
     return;
   }
@@ -334,75 +323,88 @@ void MapPanel::render_sensor_overlays(const SimulationSnapshot& snapshot)
   ImDrawList* draw_list = ImGui::GetWindowDrawList();
   const ImVec2 window_pos = ImGui::GetWindowPos();
 
-  const stdr_simulation::RobotSensorData& data = data_it->second;
-  const stdr_simulation::world::RobotState& robot = *robot_it;
-
-  // Draw laser scan rays for each laser sensor.
-  for (std::size_t li = 0; li < data.laser_scans.size(); ++li)
+  for (const stdr_simulation::world::RobotState& robot : snapshot.robots)
   {
-    const stdr_simulation::LaserScan& scan = data.laser_scans[li];
-    if (scan.ranges.empty())
+    if (!show_sensors_for.contains(robot.name))
     {
       continue;
     }
 
-    // Sensor pose is relative to robot.
-    const stdr_simulation::Pose2D sensor_pose =
-        (li < robot.config.laser_sensors.size()) ? robot.config.laser_sensors[li].pose : stdr_simulation::Pose2D{};
-    const stdr_simulation::Pose2D sensor_world = transform_to_world(robot.pose, sensor_pose);
-
-    const ScreenPoint sensor_sp = transform_.world_to_screen(sensor_world.x, sensor_world.y);
-    const ImVec2 sensor_screen{ window_pos.x + sensor_sp.x, window_pos.y + sensor_sp.y };
-
-    for (std::size_t i = 0; i < scan.ranges.size(); ++i)
-    {
-      const double angle = sensor_world.theta + scan.angle_min + static_cast<double>(i) * scan.angle_increment;
-      const double range = static_cast<double>(scan.ranges[i]);
-      const double end_wx = sensor_world.x + range * std::cos(angle);
-      const double end_wy = sensor_world.y + range * std::sin(angle);
-
-      const ScreenPoint end_sp = transform_.world_to_screen(end_wx, end_wy);
-      const ImVec2 end_screen{ window_pos.x + end_sp.x, window_pos.y + end_sp.y };
-
-      draw_list->AddLine(sensor_screen, end_screen, IM_COL32(255, 50, 50, 80), 1.0f);
-    }
-  }
-
-  // Draw sonar cones for each sonar sensor.
-  for (std::size_t si = 0; si < data.sonar_scans.size(); ++si)
-  {
-    const stdr_simulation::SonarScan& scan = data.sonar_scans[si];
-    if (si >= robot.config.sonar_sensors.size())
+    const auto data_it = snapshot.sensor_data.find(robot.name);
+    if (data_it == snapshot.sensor_data.end())
     {
       continue;
     }
 
-    const stdr_simulation::SonarConfig& cfg = robot.config.sonar_sensors[si];
-    const stdr_simulation::Pose2D sensor_world = transform_to_world(robot.pose, cfg.pose);
+    const stdr_simulation::RobotSensorData& data = data_it->second;
 
-    const ScreenPoint sensor_sp = transform_.world_to_screen(sensor_world.x, sensor_world.y);
-    const ImVec2 sensor_screen{ window_pos.x + sensor_sp.x, window_pos.y + sensor_sp.y };
+    // Draw laser scan rays for each laser sensor.
+    for (std::size_t li = 0; li < data.laser_scans.size(); ++li)
+    {
+      const stdr_simulation::LaserScan& scan = data.laser_scans[li];
+      if (scan.ranges.empty())
+      {
+        continue;
+      }
 
-    const double range = scan.range;
-    const double half_cone = cfg.cone_angle * 0.5;
+      // Sensor pose is relative to robot.
+      const stdr_simulation::Pose2D sensor_pose =
+          (li < robot.config.laser_sensors.size()) ? robot.config.laser_sensors[li].pose : stdr_simulation::Pose2D{};
+      const stdr_simulation::Pose2D sensor_world = transform_to_world(robot.pose, sensor_pose);
 
-    const double left_angle = sensor_world.theta + half_cone;
-    const double right_angle = sensor_world.theta - half_cone;
+      const ScreenPoint sensor_sp = transform_.world_to_screen(sensor_world.x, sensor_world.y);
+      const ImVec2 sensor_screen{ window_pos.x + sensor_sp.x, window_pos.y + sensor_sp.y };
 
-    const double left_wx = sensor_world.x + range * std::cos(left_angle);
-    const double left_wy = sensor_world.y + range * std::sin(left_angle);
-    const double right_wx = sensor_world.x + range * std::cos(right_angle);
-    const double right_wy = sensor_world.y + range * std::sin(right_angle);
+      for (std::size_t i = 0; i < scan.ranges.size(); ++i)
+      {
+        const double angle = sensor_world.theta + scan.angle_min + static_cast<double>(i) * scan.angle_increment;
+        const double range = static_cast<double>(scan.ranges[i]);
+        const double end_wx = sensor_world.x + range * std::cos(angle);
+        const double end_wy = sensor_world.y + range * std::sin(angle);
 
-    const ScreenPoint left_sp = transform_.world_to_screen(left_wx, left_wy);
-    const ScreenPoint right_sp = transform_.world_to_screen(right_wx, right_wy);
+        const ScreenPoint end_sp = transform_.world_to_screen(end_wx, end_wy);
+        const ImVec2 end_screen{ window_pos.x + end_sp.x, window_pos.y + end_sp.y };
 
-    const ImVec2 left_screen{ window_pos.x + left_sp.x, window_pos.y + left_sp.y };
-    const ImVec2 right_screen{ window_pos.x + right_sp.x, window_pos.y + right_sp.y };
+        draw_list->AddLine(sensor_screen, end_screen, IM_COL32(255, 50, 50, 80), 1.0f);
+      }
+    }
 
-    draw_list->AddLine(sensor_screen, left_screen, IM_COL32(50, 200, 255, 120), 1.5f);
-    draw_list->AddLine(sensor_screen, right_screen, IM_COL32(50, 200, 255, 120), 1.5f);
-    draw_list->AddLine(left_screen, right_screen, IM_COL32(50, 200, 255, 120), 1.5f);
+    // Draw sonar cones for each sonar sensor.
+    for (std::size_t si = 0; si < data.sonar_scans.size(); ++si)
+    {
+      const stdr_simulation::SonarScan& scan = data.sonar_scans[si];
+      if (si >= robot.config.sonar_sensors.size())
+      {
+        continue;
+      }
+
+      const stdr_simulation::SonarConfig& cfg = robot.config.sonar_sensors[si];
+      const stdr_simulation::Pose2D sensor_world = transform_to_world(robot.pose, cfg.pose);
+
+      const ScreenPoint sensor_sp = transform_.world_to_screen(sensor_world.x, sensor_world.y);
+      const ImVec2 sensor_screen{ window_pos.x + sensor_sp.x, window_pos.y + sensor_sp.y };
+
+      const double range = scan.range;
+      const double half_cone = cfg.cone_angle * 0.5;
+
+      const double left_angle = sensor_world.theta + half_cone;
+      const double right_angle = sensor_world.theta - half_cone;
+
+      const double left_wx = sensor_world.x + range * std::cos(left_angle);
+      const double left_wy = sensor_world.y + range * std::sin(left_angle);
+      const double right_wx = sensor_world.x + range * std::cos(right_angle);
+      const double right_wy = sensor_world.y + range * std::sin(right_angle);
+
+      const ScreenPoint left_sp = transform_.world_to_screen(left_wx, left_wy);
+      const ScreenPoint right_sp = transform_.world_to_screen(right_wx, right_wy);
+
+      const ImVec2 left_screen{ window_pos.x + left_sp.x, window_pos.y + left_sp.y };
+      const ImVec2 right_screen{ window_pos.x + right_sp.x, window_pos.y + right_sp.y };
+
+      draw_list->AddLine(sensor_screen, left_screen, IM_COL32(50, 200, 255, 120), 1.5f);
+      draw_list->AddLine(sensor_screen, right_screen, IM_COL32(50, 200, 255, 120), 1.5f);
+      draw_list->AddLine(left_screen, right_screen, IM_COL32(50, 200, 255, 120), 1.5f);
+    }
   }
 }
 
