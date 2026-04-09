@@ -208,14 +208,55 @@ void MapPanel::render_robots(const SimulationSnapshot& snapshot)
     // Determine display radius: use config radius if available, else default.
     const float world_radius =
         (robot.config.footprint.radius > 0.0) ? static_cast<float>(robot.config.footprint.radius) : kRobotRadius;
-    const float screen_radius = std::max(
+    float screen_radius = std::max(
         world_radius / static_cast<float>(transform_.get_resolution()) * transform_.get_zoom(), kMinScreenRadius);
 
     const bool is_selected = (robot.name == selected_robot_);
     const ImU32 fill_color = is_selected ? IM_COL32(255, 200, 0, 180) : IM_COL32(0, 120, 255, 180);
 
-    draw_list->AddCircleFilled(center, screen_radius, fill_color);
-    draw_list->AddCircle(center, screen_radius, IM_COL32(0, 200, 0, 255), 32, 1.5f);
+    const bool has_polygon = !robot.config.footprint.points.empty();
+
+    if (has_polygon)
+    {
+      // Build screen-space polygon vertices by rotating each local-frame point
+      // by the robot heading and translating to world position.
+      std::vector<ImVec2> poly_screen;
+      poly_screen.reserve(robot.config.footprint.points.size());
+
+      const double cos_theta = std::cos(robot.pose.theta);
+      const double sin_theta = std::sin(robot.pose.theta);
+
+      float max_screen_dist = 0.0f;
+
+      for (const stdr_simulation::Point2D& pt : robot.config.footprint.points)
+      {
+        // Rotate point by robot heading, then translate to world position.
+        const double wx = robot.pose.x + pt.x * cos_theta - pt.y * sin_theta;
+        const double wy = robot.pose.y + pt.x * sin_theta + pt.y * cos_theta;
+
+        const ScreenPoint vsp = transform_.world_to_screen(wx, wy);
+        const ImVec2 vertex{ window_pos.x + vsp.x, window_pos.y + vsp.y };
+        poly_screen.push_back(vertex);
+
+        // Track max distance from center for arrow length and selection.
+        const float dx = vertex.x - center.x;
+        const float dy = vertex.y - center.y;
+        max_screen_dist = std::max(max_screen_dist, std::sqrt(dx * dx + dy * dy));
+      }
+
+      screen_radius = std::max(max_screen_dist, kMinScreenRadius);
+
+      // Draw filled polygon and outline.
+      draw_list->AddConvexPolyFilled(poly_screen.data(), static_cast<int>(poly_screen.size()), fill_color);
+      draw_list->AddPolyline(poly_screen.data(), static_cast<int>(poly_screen.size()), IM_COL32(0, 200, 0, 255),
+                             ImDrawFlags_Closed, 1.5f);
+    }
+    else
+    {
+      // Circular footprint.
+      draw_list->AddCircleFilled(center, screen_radius, fill_color);
+      draw_list->AddCircle(center, screen_radius, IM_COL32(0, 200, 0, 255), 32, 1.5f);
+    }
 
     // Center dot for visibility at any zoom level.
     draw_list->AddCircleFilled(center, kCenterDotRadius, IM_COL32(255, 0, 0, 255));
