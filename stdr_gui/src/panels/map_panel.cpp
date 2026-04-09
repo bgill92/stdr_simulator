@@ -247,7 +247,8 @@ void MapPanel::render_robots(const SimulationSnapshot& snapshot)
       screen_radius = std::max(max_screen_dist, kMinScreenRadius);
 
       // Draw filled polygon and outline.
-      draw_list->AddConvexPolyFilled(poly_screen.data(), static_cast<int>(poly_screen.size()), fill_color);
+      // Use concave fill because the trin_bot D-shaped polygon is non-convex.
+      draw_list->AddConcavePolyFilled(poly_screen.data(), static_cast<int>(poly_screen.size()), fill_color);
       draw_list->AddPolyline(poly_screen.data(), static_cast<int>(poly_screen.size()), IM_COL32(0, 200, 0, 255),
                              ImDrawFlags_Closed, 1.5f);
     }
