@@ -249,8 +249,12 @@ void MapPanel::render_robots(const SimulationSnapshot& snapshot)
       // Draw filled polygon and outline.
       // Use concave fill because the trin_bot D-shaped polygon is non-convex.
       draw_list->AddConcavePolyFilled(poly_screen.data(), static_cast<int>(poly_screen.size()), fill_color);
-      draw_list->AddPolyline(poly_screen.data(), static_cast<int>(poly_screen.size()), IM_COL32(0, 200, 0, 255),
-                             ImDrawFlags_Closed, 1.5f);
+      // Draw outline using path API for reliable rendering over the concave fill.
+      for (int i = 0; i < static_cast<int>(poly_screen.size()); ++i)
+      {
+        draw_list->PathLineTo(poly_screen[static_cast<size_t>(i)]);
+      }
+      draw_list->PathStroke(IM_COL32(0, 200, 0, 255), ImDrawFlags_Closed, 3.0f);
     }
     else
     {
