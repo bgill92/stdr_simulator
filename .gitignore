@@ -1,6 +1,7 @@
 # ROS #
 ######################
 /build/
+/build_standalone/
 /install/
 /log/
 devel/
