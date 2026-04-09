@@ -128,6 +128,11 @@ TEST(StandaloneBackend, ResetClearsRobotsAndElapsedTime)
   backend.start();
   // Let simulation run briefly to accumulate elapsed time.
   std::this_thread::sleep_for(std::chrono::milliseconds(250));
+
+  // Verify simulation actually advanced before testing that reset clears it.
+  const auto pre_reset = backend.get_snapshot();
+  EXPECT_GT(pre_reset->elapsed_time, 0.0);
+
   backend.reset();
 
   const auto snapshot = backend.get_snapshot();
@@ -164,6 +169,28 @@ TEST(StandaloneBackend, PollMessagesReturnsAndDrains)
   // Second call should be empty since we drained.
   const std::vector<std::string> messages2 = backend.poll_messages();
   EXPECT_THAT(messages2, IsEmpty());
+}
+
+TEST(StandaloneBackend, SetSpeedDoesNotCrash)
+{
+  StandaloneBackend backend;
+  backend.set_speed(2.0);
+  backend.set_speed(0.5);
+
+  const auto snapshot = backend.get_snapshot();
+  ASSERT_NE(snapshot, nullptr);
+}
+
+TEST(StandaloneBackend, DeleteNonexistentRobotIsNoOp)
+{
+  StandaloneBackend backend;
+  std::ignore = backend.load_map(map_path());
+
+  backend.delete_robot("does_not_exist");
+
+  const auto snapshot = backend.get_snapshot();
+  ASSERT_NE(snapshot, nullptr);
+  EXPECT_THAT(snapshot->robots, IsEmpty());
 }
 
 }  // namespace

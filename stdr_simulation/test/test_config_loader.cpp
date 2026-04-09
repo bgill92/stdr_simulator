@@ -208,5 +208,28 @@ TEST(LoadRobotConfig, BadSensorFilenameReturnsError)
   EXPECT_FALSE(config.error().empty());
 }
 
+TEST(LoadRobotConfig, FootprintPointsWrappedKeyParsed)
+{
+  const tl::expected<RobotConfig, std::string> config =
+      load_robot_config(fixture("robot_polygon.yaml"), std::string(FIXTURE_DIR));
+  ASSERT_TRUE(config.has_value()) << config.error();
+  ASSERT_THAT(config->footprint.points, testing::SizeIs(4));
+  EXPECT_DOUBLE_EQ(config->footprint.points[0].x, 0.1);
+  EXPECT_DOUBLE_EQ(config->footprint.points[0].y, 0.2);
+  EXPECT_DOUBLE_EQ(config->footprint.points[2].x, -0.1);
+  EXPECT_DOUBLE_EQ(config->footprint.points[2].y, -0.2);
+}
+
+TEST(LoadRobotConfig, FootprintPointsBareKeyParsed)
+{
+  const tl::expected<RobotConfig, std::string> config =
+      load_robot_config(fixture("robot_polygon_bare.yaml"), std::string(FIXTURE_DIR));
+  ASSERT_TRUE(config.has_value()) << config.error();
+  ASSERT_THAT(config->footprint.points, testing::SizeIs(3));
+  EXPECT_DOUBLE_EQ(config->footprint.points[0].x, 0.3);
+  EXPECT_DOUBLE_EQ(config->footprint.points[0].y, 0.4);
+  EXPECT_DOUBLE_EQ(config->footprint.points[1].x, -0.3);
+}
+
 }  // namespace
 }  // namespace stdr_simulation

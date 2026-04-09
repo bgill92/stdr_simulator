@@ -197,5 +197,20 @@ TEST(MapTransformTest, WorldToScreenNegativeOriginCorner)
   EXPECT_NEAR(s.y, 99.0f, 1e-4f);
 }
 
+// ---- get_resolution ---------------------------------------------------------
+
+TEST(MapTransformTest, GetResolutionDefault)
+{
+  const MapTransform t;
+  EXPECT_DOUBLE_EQ(t.get_resolution(), 1.0);
+}
+
+TEST(MapTransformTest, GetResolutionReturnsSetValue)
+{
+  MapTransform t;
+  t.set_map_info(0.0, 0.0, 0.05, 100, 100);
+  EXPECT_DOUBLE_EQ(t.get_resolution(), 0.05);
+}
+
 }  // namespace
 }  // namespace stdr_gui
