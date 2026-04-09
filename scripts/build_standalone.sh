@@ -7,7 +7,7 @@ ROOT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
 BUILD_DIR="${ROOT_DIR}/build_standalone"
 INSTALL_DIR="${BUILD_DIR}/install"
-BUILD_TYPE="${1:-RelWithDebInfo}"
+BUILD_TYPE="RelWithDebInfo"
 
 cmake_build() {
   local pkg="$1"
@@ -28,4 +28,4 @@ cmake_build stdr_gui
 cmake_build stdr_standalone
 
 echo "--- Running stdr_standalone_exe ---"
-exec "${INSTALL_DIR}/lib/stdr_standalone/stdr_standalone_exe"
+exec "${INSTALL_DIR}/lib/stdr_standalone/stdr_standalone_exe" "$@"
