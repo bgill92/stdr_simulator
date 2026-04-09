@@ -55,6 +55,9 @@ public:
   /** @brief Get the current pan offset in screen pixels. */
   [[nodiscard]] ScreenPoint get_offset() const;
 
+  /** @brief Get the map resolution in world metres per map pixel. */
+  [[nodiscard]] double get_resolution() const;
+
 private:
   double map_origin_x_{ 0.0 };
   double map_origin_y_{ 0.0 };

@@ -11,7 +11,7 @@ namespace stdr_gui
 void RobotInfoPanel::render(const SimulationSnapshot& snapshot, SimulatorBackend& backend,
                             std::vector<std::unique_ptr<SensorWindow>>& sensor_windows)
 {
-  ImGui::Begin("Robot Info");
+  ImGui::Begin("Robot Info", nullptr, ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoCollapse);
 
   if (snapshot.robots.empty())
   {
@@ -32,6 +32,11 @@ void RobotInfoPanel::render(const SimulationSnapshot& snapshot, SimulatorBackend
   }
 
   ImGui::End();
+}
+
+bool RobotInfoPanel::show_sensors_for(const std::string& robot_name) const
+{
+  return show_sensors_.contains(robot_name);
 }
 
 void RobotInfoPanel::render_robot_entry(const stdr_simulation::world::RobotState& robot,
@@ -75,11 +80,27 @@ void RobotInfoPanel::render_robot_entry(const stdr_simulation::world::RobotState
               robot.config.laser_sensors.size(), robot.config.sonar_sensors.size(), robot.config.rfid_sensors.size(),
               robot.config.co2_sensors.size(), robot.config.thermal_sensors.size(), robot.config.sound_sensors.size());
 
+  // Toggle sensor visualization on the map.
+  bool show = show_sensors_.contains(robot.name);
+  const std::string checkbox_label = "Show Sensors##" + robot.name;
+  if (ImGui::Checkbox(checkbox_label.c_str(), &show))
+  {
+    if (show)
+    {
+      show_sensors_.insert(robot.name);
+    }
+    else
+    {
+      show_sensors_.erase(robot.name);
+    }
+  }
+
   ImGui::Separator();
 
   // Action buttons: Delete.
   if (ImGui::Button("Delete"))
   {
+    show_sensors_.erase(robot.name);
     backend.delete_robot(robot.name);
     if (selected_robot_ == robot.name)
     {

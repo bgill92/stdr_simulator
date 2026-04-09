@@ -29,6 +29,7 @@ Before running any rollback, reset, or overwrite command (`git reset`, `git chec
 
 ## Pull Requests
 
+- Always target **`jazzy-devel`** as the base branch (`--base jazzy-devel`), not `indigo-devel` or `main`.
 - Always create PRs as **draft** (`gh pr create --draft`). A human must transition it to "Ready for review."
 - Commit messages must contain meaningful content.
 - CMake changes for non-ROS code must not include Ament macros.

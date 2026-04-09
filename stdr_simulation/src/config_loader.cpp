@@ -386,8 +386,11 @@ tl::expected<RobotConfig, std::string> load_robot_config(const std::string& yaml
             config.footprint.radius = fp["radius"].as<double>();
           if (fp["points"])
           {
-            for (const YAML::Node& pt : fp["points"])
+            for (const YAML::Node& pt_node : fp["points"])
             {
+              // Unwrap the optional `point:` key to support both wrapped and
+              // bare point entries in the YAML.
+              const YAML::Node pt = pt_node["point"] ? pt_node["point"] : pt_node;
               Point2D p;
               if (pt["x"])
                 p.x = pt["x"].as<double>();

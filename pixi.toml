@@ -43,8 +43,14 @@ pre-commit = "*"
 imgui = ">=1.92.3,<2"
 implot = ">=0.17,<0.18"
 
+[activation.env]
+STDR_RESOURCES_DIR = "$PIXI_PROJECT_ROOT/stdr_resources/resources"
+
 [tasks]
 build = "colcon build --symlink-install --cmake-args -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCMAKE_EXPORT_COMPILE_COMMANDS=ON"
 test = { cmd = "colcon test --event-handlers console_direct+", depends-on = ["build"] }
 clean = "rm -rf build install log"
 lint = "pre-commit run -a"
+standalone = { cmd = "install/stdr_standalone/lib/stdr_standalone/stdr_standalone_exe", depends-on = ["build"] }
+standalone-cmake = "scripts/build_standalone.sh"
+clean-standalone = "rm -rf build_standalone"

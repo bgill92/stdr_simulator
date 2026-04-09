@@ -96,4 +96,3 @@ namespace stdr_server {
   }
 
 } // end of namespace stdr_server
-
