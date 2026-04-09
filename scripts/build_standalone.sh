@@ -28,5 +28,4 @@ cmake_build stdr_gui
 cmake_build stdr_standalone
 
 echo "--- Running stdr_standalone_exe ---"
-export STDR_RESOURCES_DIR="${ROOT_DIR}/stdr_resources/resources"
 exec "${INSTALL_DIR}/lib/stdr_standalone/stdr_standalone_exe"
