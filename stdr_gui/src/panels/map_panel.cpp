@@ -24,11 +24,9 @@ namespace
 {
 
 constexpr float kRobotRadius = 0.2f;          // Default footprint radius in world metres.
-constexpr float kArrowLength = 0.35f;         // Orientation arrow length in world metres.
 constexpr float kSelectionThreshold = 15.0f;  // Click distance in pixels to select a robot.
 constexpr float kCenterDotRadius = 4.0f;      // Center dot radius in pixels.
 constexpr float kMinScreenRadius = 8.0f;      // Minimum robot display radius in pixels.
-constexpr float kMinArrowLength = 12.0f;      // Minimum arrow length in pixels.
 
 }  // namespace
 
@@ -222,9 +220,8 @@ void MapPanel::render_robots(const SimulationSnapshot& snapshot)
     // Center dot for visibility at any zoom level.
     draw_list->AddCircleFilled(center, kCenterDotRadius, IM_COL32(255, 0, 0, 255));
 
-    // Draw orientation arrow.
-    const float arrow_screen = std::max(
-        kArrowLength / static_cast<float>(transform_.get_resolution()) * transform_.get_zoom(), kMinArrowLength);
+    // Draw orientation arrow from center to the footprint edge.
+    const float arrow_screen = screen_radius;
     const ImVec2 tip{ center.x + arrow_screen * static_cast<float>(std::cos(robot.pose.theta)),
                       center.y - arrow_screen * static_cast<float>(std::sin(robot.pose.theta)) };
     draw_list->AddLine(center, tip, IM_COL32(255, 0, 0, 255), 2.5f);
