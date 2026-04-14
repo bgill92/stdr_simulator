@@ -5,6 +5,7 @@
 
 #include <cstdint>
 #include <string>
+#include <string_view>
 #include <unordered_set>
 #include <vector>
 
@@ -35,6 +36,12 @@ public:
   /** @brief Get the currently selected robot name (empty if none). */
   [[nodiscard]] const std::string& selected_robot() const;
 
+  /** @brief Set the robot name that is currently under teleop control.
+   *
+   *  Call this each frame before render() so the velocity overlay knows which
+   *  robot to show.  Pass an empty string to hide the overlay. */
+  void set_teleop_target(std::string_view name);
+
 private:
   void update_texture(const stdr_simulation::OccupancyGrid& grid);
   void handle_input(SimulatorBackend& backend);
@@ -45,6 +52,7 @@ private:
   void render_environment_sources(const SimulationSnapshot& snapshot);
   void render_map_info_overlay(const SimulationSnapshot& snapshot);
   void render_context_menu(SimulatorBackend& backend, const SimulationSnapshot& snapshot);
+  void render_velocity_overlay(const SimulationSnapshot& snapshot);
 
   MapTransform transform_;
   GLuint map_texture_{ 0 };
@@ -56,6 +64,7 @@ private:
   double cached_resolution_{ 1.0 };
 
   std::string selected_robot_;
+  std::string teleop_target_;
   bool show_grid_{ false };
   bool dragging_robot_{ false };
 

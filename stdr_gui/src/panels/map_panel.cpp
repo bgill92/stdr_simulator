@@ -29,6 +29,11 @@ constexpr float kSelectionThreshold = 15.0f;  // Click distance in pixels to sel
 constexpr float kCenterDotRadius = 4.0f;      // Center dot radius in pixels.
 constexpr float kMinScreenRadius = 8.0f;      // Minimum robot display radius in pixels.
 
+[[nodiscard]] bool is_nonzero(const stdr_simulation::Twist2D& twist)
+{
+  return (twist.linear_x != 0.0 || twist.linear_y != 0.0 || twist.angular_z != 0.0);
+}
+
 }  // namespace
 
 MapPanel::~MapPanel()
@@ -42,6 +47,11 @@ MapPanel::~MapPanel()
 const std::string& MapPanel::selected_robot() const
 {
   return selected_robot_;
+}
+
+void MapPanel::set_teleop_target(const std::string_view name)
+{
+  teleop_target_.assign(name);
 }
 
 void MapPanel::render(const SimulationSnapshot& snapshot, SimulatorBackend& backend,
@@ -65,6 +75,7 @@ void MapPanel::render(const SimulationSnapshot& snapshot, SimulatorBackend& back
   render_sensor_overlays(snapshot, show_sensors_for);
   render_environment_sources(snapshot);
   render_map_info_overlay(snapshot);
+  render_velocity_overlay(snapshot);
   render_context_menu(backend, snapshot);
 
   ImGui::End();
@@ -506,6 +517,59 @@ void MapPanel::render_map_info_overlay(const SimulationSnapshot& snapshot)
   // Dimensions in meters.
   const std::string world_text = std::format("World: {:.2f}x{:.2f} m", world_w, world_h);
   draw_list->AddText(ImVec2(text_x, text_y), text_color, world_text.c_str());
+}
+
+void MapPanel::render_velocity_overlay(const SimulationSnapshot& snapshot)
+{
+  if (teleop_target_.empty())
+  {
+    return;
+  }
+
+  const stdr_simulation::world::RobotState* robot_state = nullptr;
+  for (const stdr_simulation::world::RobotState& r : snapshot.robots)
+  {
+    if (r.name == teleop_target_)
+    {
+      robot_state = &r;
+      break;
+    }
+  }
+
+  if (robot_state == nullptr || !is_nonzero(robot_state->cmd_vel))
+  {
+    return;
+  }
+
+  // Place the overlay in the top-left corner of the map window, above the
+  // map-info overlay that occupies the bottom-left.
+  const ImVec2 window_pos = ImGui::GetWindowPos();
+  constexpr float kPadding = 8.0f;
+  constexpr float kOverlayWidth = 200.0f;
+  constexpr float kOverlayHeight = 60.0f;
+
+  const ImVec2 overlay_pos{ window_pos.x + kPadding, window_pos.y + kPadding };
+  const ImVec2 overlay_end{ overlay_pos.x + kOverlayWidth, overlay_pos.y + kOverlayHeight };
+
+  ImDrawList* draw_list = ImGui::GetWindowDrawList();
+  draw_list->AddRectFilled(overlay_pos, overlay_end, IM_COL32(0, 0, 0, 180), 4.0f);
+
+  const float text_x = overlay_pos.x + 6.0f;
+  float text_y = overlay_pos.y + 4.0f;
+  constexpr float kLineHeight = 15.0f;
+  const ImU32 text_color = IM_COL32(220, 220, 220, 255);
+
+  const std::string header_text = std::format("Driving: {}", robot_state->name);
+  draw_list->AddText(ImVec2(text_x, text_y), text_color, header_text.c_str());
+  text_y += kLineHeight;
+
+  const std::string vel_text =
+      std::format("vx: {:.2f} m/s   vy: {:.2f} m/s", robot_state->cmd_vel.linear_x, robot_state->cmd_vel.linear_y);
+  draw_list->AddText(ImVec2(text_x, text_y), text_color, vel_text.c_str());
+  text_y += kLineHeight;
+
+  const std::string ang_text = std::format("wz: {:.2f} rad/s", robot_state->cmd_vel.angular_z);
+  draw_list->AddText(ImVec2(text_x, text_y), text_color, ang_text.c_str());
 }
 
 void MapPanel::render_context_menu(SimulatorBackend& backend, const SimulationSnapshot& snapshot)

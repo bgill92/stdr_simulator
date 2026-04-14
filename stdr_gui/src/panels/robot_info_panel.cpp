@@ -39,6 +39,11 @@ bool RobotInfoPanel::show_sensors_for(const std::string& robot_name) const
   return show_sensors_.contains(robot_name);
 }
 
+const std::string& RobotInfoPanel::selected_robot() const
+{
+  return selected_robot_;
+}
+
 void RobotInfoPanel::render_robot_entry(const stdr_simulation::world::RobotState& robot,
                                         const stdr_simulation::RobotSensorData* sensor_data, SimulatorBackend& backend,
                                         std::vector<std::unique_ptr<SensorWindow>>& sensor_windows)

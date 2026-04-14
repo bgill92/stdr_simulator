@@ -7,6 +7,7 @@
 #include <stdr_gui/panels/sensor_window.hpp>
 #include <stdr_gui/panels/toolbar.hpp>
 #include <stdr_gui/simulator_backend.hpp>
+#include <stdr_gui/teleop_controller.hpp>
 #include <tl_expected/expected.hpp>
 
 #include <atomic>
@@ -49,11 +50,18 @@ private:
   void setup_docking_layout();
   void handle_file_dialog_result();
   void render_spawn_dialog();
+  void render_teleop_window();
+  void dispatch_teleop(const SimulationSnapshot& snapshot);
 
   std::unique_ptr<SimulatorBackend> backend_;
   GLFWwindow* window_{ nullptr };
   std::atomic<bool> shutdown_requested_{ false };
   bool first_frame_{ true };
+
+  TeleopController teleop_;
+  // Tracks whether we sent a non-zero velocity command last frame so we can
+  // emit exactly one zero command when keys are released, then go silent.
+  bool was_teleop_active_{ false };
 
   MapPanel map_panel_;
   RobotInfoPanel robot_info_panel_;

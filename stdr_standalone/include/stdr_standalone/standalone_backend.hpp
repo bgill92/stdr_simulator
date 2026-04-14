@@ -34,6 +34,7 @@ public:
   void reset() override;
   void set_speed(double multiplier) override;
   void set_robot_pose(const std::string& name, const stdr_simulation::Pose2D& pose) override;
+  void set_cmd_vel(const std::string& robot_name, const stdr_simulation::Twist2D& cmd) override;
   [[nodiscard]] std::shared_ptr<const stdr_gui::SimulationSnapshot> get_snapshot() const override;
   [[nodiscard]] std::vector<std::string> poll_messages() override;
 

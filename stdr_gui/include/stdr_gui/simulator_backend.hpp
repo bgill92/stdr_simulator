@@ -71,6 +71,15 @@ public:
   /** @brief Teleport a robot to a new pose (e.g. drag-and-drop). */
   virtual void set_robot_pose(const std::string& name, const stdr_simulation::Pose2D& pose) = 0;
 
+  /** @brief Send a velocity command to a robot.
+   *
+   *  Replaces any previously outstanding command for that robot. If
+   *  @p robot_name is not present, the call is a no-op.
+   *
+   *  @param robot_name  Name of the target robot.
+   *  @param cmd         Desired linear and angular velocity. */
+  virtual void set_cmd_vel(const std::string& robot_name, const stdr_simulation::Twist2D& cmd) = 0;
+
   /** @brief Get a thread-safe snapshot of the current simulation state.
    *
    *  The returned shared_ptr is immutable. The GUI holds it for one frame

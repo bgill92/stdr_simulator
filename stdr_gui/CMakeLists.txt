@@ -14,6 +14,7 @@ add_library(
   src/gui_app.cpp
   src/map_transform.cpp
   src/pose_utils.cpp
+  src/teleop_controller.cpp
   src/panels/file_dialog.cpp
   src/panels/map_panel.cpp
   src/panels/robot_info_panel.cpp
@@ -62,6 +63,9 @@ if(BUILD_TESTING)
 
   ament_add_gtest(test_file_dialog test/test_file_dialog.cpp)
   target_link_libraries(test_file_dialog ${PROJECT_NAME} GTest::gmock)
+
+  ament_add_gtest(test_teleop_controller test/test_teleop_controller.cpp)
+  target_link_libraries(test_teleop_controller ${PROJECT_NAME} GTest::gmock)
 endif()
 
 ament_package()
