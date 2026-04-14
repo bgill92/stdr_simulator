@@ -10,7 +10,8 @@
 
 #include <string>
 
-namespace stdr_parser {
+namespace stdr_parser
+{
 
 /** @brief Load a robot YAML file and convert to a ROS2 message.
  *
@@ -20,15 +21,12 @@ namespace stdr_parser {
  *  @param base_dir   Directory for resolving filename references.
  *  @param specs_dir  Directory containing specification YAML files.
  *  @return RobotMsg, or error string describing what went wrong. */
-[[nodiscard]] tl::expected<stdr_msgs::msg::RobotMsg, std::string> load_robot_msg(
-    const std::string& yaml_path,
-    const std::string& base_dir,
-    const std::string& specs_dir);
+[[nodiscard]] tl::expected<stdr_msgs::msg::RobotMsg, std::string>
+load_robot_msg(const std::string& yaml_path, const std::string& base_dir, const std::string& specs_dir);
 
 /** @brief Load map metadata from a YAML file.
  *  @param yaml_path Path to the map YAML file.
  *  @return MapMetadata, or error string. */
-[[nodiscard]] tl::expected<stdr_simulation::MapMetadata, std::string> load_map(
-    const std::string& yaml_path);
+[[nodiscard]] tl::expected<stdr_simulation::MapMetadata, std::string> load_map(const std::string& yaml_path);
 
 }  // namespace stdr_parser

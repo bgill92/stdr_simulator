@@ -5,7 +5,8 @@
 #include <utility>
 #include <vector>
 
-namespace stdr_simulation::collision {
+namespace stdr_simulation::collision
+{
 
 /**
  * @brief Checks whether a robot footprint intersects occupied cells in the map.
@@ -17,7 +18,8 @@ namespace stdr_simulation::collision {
  * All methods are stateless and safe to call from multiple threads
  * concurrently.
  */
-class CollisionChecker {
+class CollisionChecker
+{
 public:
   CollisionChecker() = default;
   ~CollisionChecker() = default;
@@ -34,10 +36,7 @@ public:
    * @param map       Occupancy grid to query.
    * @return true if any footprint point lands on an occupied or out-of-bounds cell.
    */
-  [[nodiscard]] bool check_collision(
-      const Pose2D& pose,
-      const Footprint& footprint,
-      const OccupancyGrid& map) const;
+  [[nodiscard]] bool check_collision(const Pose2D& pose, const Footprint& footprint, const OccupancyGrid& map) const;
 
   /**
    * @brief Check if moving from previous_pose to new_pose collides along the path.
@@ -54,11 +53,8 @@ public:
    * @param map           Occupancy grid to query.
    * @return true if any cell along the swept path is occupied or out-of-bounds.
    */
-  [[nodiscard]] bool check_path_collision(
-      const Pose2D& new_pose,
-      const Pose2D& previous_pose,
-      const Footprint& footprint,
-      const OccupancyGrid& map) const;
+  [[nodiscard]] bool check_path_collision(const Pose2D& new_pose, const Pose2D& previous_pose,
+                                          const Footprint& footprint, const OccupancyGrid& map) const;
 
 private:
   /** Occupancy value above which a cell is treated as an obstacle. */
@@ -83,8 +79,7 @@ private:
    *
    * @return Ordered list of (col, row) grid cell pairs along the segment.
    */
-  [[nodiscard]] static std::vector<std::pair<int, int>> get_points_between(
-      int x1, int y1, int x2, int y2);
+  [[nodiscard]] static std::vector<std::pair<int, int>> get_points_between(int x1, int y1, int x2, int y2);
 };
 
 }  // namespace stdr_simulation::collision

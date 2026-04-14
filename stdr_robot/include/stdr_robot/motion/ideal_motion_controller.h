@@ -12,11 +12,11 @@
    You should have received a copy of the GNU General Public License
    along with this program; if not, write to the Free Software Foundation,
    Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301  USA
-   
-   Authors : 
+
+   Authors :
    * Manos Tsardoulias, etsardou@gmail.com
    * Aris Thallas, aris.thallas@gmail.com
-   * Chris Zalidis, zalidis@gmail.com 
+   * Chris Zalidis, zalidis@gmail.com
 ******************************************************************************/
 
 #ifndef IDEAL_MOTION_CONTROLLER_H
@@ -27,48 +27,41 @@
 /**
 @namespace stdr_robot
 @brief The main namespace for STDR Robot
-**/ 
-namespace stdr_robot 
+**/
+namespace stdr_robot
 {
-  
-  /**
-  @class IdealMotionController
-  @brief A class that provides motion controller implementation. Inherits publicly MotionController
-  **/ 
-  class IdealMotionController : public MotionController 
-  {
-    
-    public:
-    
-      /**
-      @brief Default constructor
-      @param pose [const geometry_msgs::Pose2D&] The robot pose
-      @param tf [tf::TransformBroadcaster&] A ROS tf broadcaster
-      @param n [ros::NodeHandle&] The ROS node handle
-      @param name [const std::string&] The robot frame id
-      @return void
-      **/
-      IdealMotionController(
-        const geometry_msgs::Pose2D& pose, 
-        tf::TransformBroadcaster& tf, 
-        ros::NodeHandle& n, 
-        const std::string& name,
-        const stdr_msgs::KinematicMsg params);
-          
-      /**
-      @brief Calculates the motion - updates the robot pose
-      @param event [const ros::TimerEvent&] A ROS timer event
-      @return void
-      **/
-      void calculateMotion(const ros::TimerEvent& event);
-      
-      /**
-      @brief Default destructor 
-      @return void
-      **/
-      ~IdealMotionController(void);
-  };
-}
 
+/**
+@class IdealMotionController
+@brief A class that provides motion controller implementation. Inherits publicly MotionController
+**/
+class IdealMotionController : public MotionController
+{
+public:
+  /**
+  @brief Default constructor
+  @param pose [const geometry_msgs::Pose2D&] The robot pose
+  @param tf [tf::TransformBroadcaster&] A ROS tf broadcaster
+  @param n [ros::NodeHandle&] The ROS node handle
+  @param name [const std::string&] The robot frame id
+  @return void
+  **/
+  IdealMotionController(const geometry_msgs::Pose2D& pose, tf::TransformBroadcaster& tf, ros::NodeHandle& n,
+                        const std::string& name, const stdr_msgs::KinematicMsg params);
+
+  /**
+  @brief Calculates the motion - updates the robot pose
+  @param event [const ros::TimerEvent&] A ROS timer event
+  @return void
+  **/
+  void calculateMotion(const ros::TimerEvent& event);
+
+  /**
+  @brief Default destructor
+  @return void
+  **/
+  ~IdealMotionController(void);
+};
+}  // namespace stdr_robot
 
 #endif

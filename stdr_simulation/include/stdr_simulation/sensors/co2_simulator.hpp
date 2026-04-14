@@ -8,7 +8,8 @@
 #include <stdr_simulation/types.hpp>
 #include <vector>
 
-namespace stdr_simulation::sensors {
+namespace stdr_simulation::sensors
+{
 
 /**
  * @brief Simulates a CO2 concentration sensor in an environment with sources.
@@ -18,7 +19,8 @@ namespace stdr_simulation::sensors {
  * rated ppm (clamping prevents division-by-zero and models sensor saturation
  * at very short distances).  No noise or angular filtering is applied.
  */
-class Co2Simulator {
+class Co2Simulator
+{
 public:
   Co2Simulator() = default;
   ~Co2Simulator() = default;
@@ -31,10 +33,8 @@ public:
    * @param sources           CO2 emission sources in the environment.
    * @return CO2Measurement   Total ppm accumulated from all in-range sources.
    */
-  [[nodiscard]] CO2Measurement simulate(
-      const Pose2D& sensor_pose_world,
-      const CO2SensorConfig& config,
-      const std::vector<CO2Source>& sources) const;
+  [[nodiscard]] CO2Measurement simulate(const Pose2D& sensor_pose_world, const CO2SensorConfig& config,
+                                        const std::vector<CO2Source>& sources) const;
 };
 
 }  // namespace stdr_simulation::sensors

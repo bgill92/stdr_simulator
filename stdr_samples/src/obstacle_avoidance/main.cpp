@@ -12,13 +12,13 @@
    You should have received a copy of the GNU General Public License
    along with this program; if not, write to the Free Software Foundation,
    Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301  USA
-   
-   Authors : 
+
+   Authors :
    * Manos Tsardoulias, etsardou@gmail.com
    * Aris Thallas, aris.thallas@gmail.com
-   * Chris Zalidis, zalidis@gmail.com 
+   * Chris Zalidis, zalidis@gmail.com
 ******************************************************************************/
-# include "stdr_samples/obstacle_avoidance/obstacle_avoidance.h"
+#include "stdr_samples/obstacle_avoidance/obstacle_avoidance.h"
 
 /**
 @brief The main node function
@@ -26,7 +26,7 @@
 @param argv [char] The input arguments
 @return int : 0 for success
 **/
-int main(int argc,char **argv)
+int main(int argc, char** argv)
 {
   ros::init(argc, argv, "stdr_obstacle_avoidance", ros::init_options::AnonymousName);
   stdr_samples::ObstacleAvoidance obj(argc, argv);

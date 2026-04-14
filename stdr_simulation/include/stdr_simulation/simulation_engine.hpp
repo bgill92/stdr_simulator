@@ -16,10 +16,12 @@
 #include <unordered_map>
 #include <vector>
 
-namespace stdr_simulation {
+namespace stdr_simulation
+{
 
 /** Sensor data for a single robot, populated by step(). */
-struct RobotSensorData {
+struct RobotSensorData
+{
   std::vector<LaserScan> laser_scans;
   std::vector<SonarScan> sonar_scans;
   std::vector<RfidMeasurement> rfid_measurements;
@@ -35,7 +37,8 @@ struct RobotSensorData {
  * @warning Not thread-safe. Intended for use in a single-threaded simulation
  * step loop.
  */
-class SimulationEngine {
+class SimulationEngine
+{
 public:
   /** @brief Construct the engine, binding it to the given world model. */
   explicit SimulationEngine(world::WorldModel& world);

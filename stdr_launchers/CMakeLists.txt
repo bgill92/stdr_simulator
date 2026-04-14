@@ -6,6 +6,4 @@ find_package(catkin REQUIRED)
 catkin_package()
 
 # Install launch files
-install(DIRECTORY launch rviz
-  DESTINATION ${CATKIN_PACKAGE_SHARE_DESTINATION}
-)
+install(DIRECTORY launch rviz DESTINATION ${CATKIN_PACKAGE_SHARE_DESTINATION})

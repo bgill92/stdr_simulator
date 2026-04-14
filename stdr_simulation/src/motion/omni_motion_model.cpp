@@ -4,15 +4,16 @@
 
 #include <cmath>
 
-namespace stdr_simulation::motion {
+namespace stdr_simulation::motion
+{
 
-OmniMotionModel::OmniMotionModel() : rng_(std::random_device{}()) {}
+OmniMotionModel::OmniMotionModel() : rng_(std::random_device{}())
+{
+}
 
-Pose2D OmniMotionModel::update(
-    const Pose2D& current,
-    const Twist2D& cmd,
-    const double dt,
-    const KinematicConfig& noise_params) const {
+Pose2D OmniMotionModel::update(const Pose2D& current, const Twist2D& cmd, const double dt,
+                               const KinematicConfig& noise_params) const
+{
   const auto [noisy, g] = apply_noise(cmd, noise_params, rng_);
 
   const double vx = noisy.linear_x;

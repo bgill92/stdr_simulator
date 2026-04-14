@@ -8,8 +8,10 @@
 #include <numbers>
 #include <string>
 
-namespace stdr_simulation {
-namespace {
+namespace stdr_simulation
+{
+namespace
+{
 
 using ::testing::IsNull;
 using ::testing::NotNull;
@@ -45,7 +47,7 @@ OccupancyGrid free_map()
   map.width = 20;
   map.height = 20;
   map.resolution = 0.1;
-  map.origin = {0.0, 0.0, 0.0};
+  map.origin = { 0.0, 0.0, 0.0 };
   map.data.assign(static_cast<std::size_t>(20 * 20), 0);
   return map;
 }
@@ -55,18 +57,18 @@ OccupancyGrid free_map()
 TEST(SimulationEngineTest, SpawnRobotReturnsName)
 {
   world::WorldModel world;
-  SimulationEngine engine{world};
+  SimulationEngine engine{ world };
 
-  const std::string name = engine.spawn_robot(minimal_robot(), Pose2D{1.0, 1.0, 0.0});
+  const std::string name = engine.spawn_robot(minimal_robot(), Pose2D{ 1.0, 1.0, 0.0 });
   EXPECT_EQ(name, "robot0");
 }
 
 TEST(SimulationEngineTest, DeleteRobot)
 {
   world::WorldModel world;
-  SimulationEngine engine{world};
+  SimulationEngine engine{ world };
 
-  const std::string name = engine.spawn_robot(minimal_robot(), Pose2D{1.0, 1.0, 0.0});
+  const std::string name = engine.spawn_robot(minimal_robot(), Pose2D{ 1.0, 1.0, 0.0 });
   engine.step(0.1);
   ASSERT_THAT(engine.get_sensor_data(name), NotNull());
 
@@ -80,13 +82,13 @@ TEST(SimulationEngineTest, StepUpdatesPose)
 {
   world::WorldModel world;
   world.set_map(free_map());
-  SimulationEngine engine{world};
+  SimulationEngine engine{ world };
 
-  const Pose2D start{1.0, 1.0, 0.0};
+  const Pose2D start{ 1.0, 1.0, 0.0 };
   const std::string name = engine.spawn_robot(minimal_robot(), start);
 
   // Drive forward along +x at 1 m/s.
-  engine.set_cmd_vel(name, Twist2D{1.0, 0.0, 0.0});
+  engine.set_cmd_vel(name, Twist2D{ 1.0, 0.0, 0.0 });
   engine.step(0.1);
 
   const world::RobotState* state = world.get_robot(name);
@@ -100,9 +102,9 @@ TEST(SimulationEngineTest, StepWithMapRunsSensors)
 {
   world::WorldModel world;
   world.set_map(free_map());
-  SimulationEngine engine{world};
+  SimulationEngine engine{ world };
 
-  const std::string name = engine.spawn_robot(robot_with_laser(), Pose2D{1.0, 1.0, 0.0});
+  const std::string name = engine.spawn_robot(robot_with_laser(), Pose2D{ 1.0, 1.0, 0.0 });
   engine.step(0.1);
 
   const RobotSensorData* data = engine.get_sensor_data(name);
@@ -117,9 +119,9 @@ TEST(SimulationEngineTest, StepWithoutMapSkipsRaycastSensors)
 {
   world::WorldModel world;
   // Intentionally no map set — raycast sensors cannot fire.
-  SimulationEngine engine{world};
+  SimulationEngine engine{ world };
 
-  const std::string name = engine.spawn_robot(robot_with_laser(), Pose2D{0.5, 0.5, 0.0});
+  const std::string name = engine.spawn_robot(robot_with_laser(), Pose2D{ 0.5, 0.5, 0.0 });
   engine.step(0.1);
 
   const RobotSensorData* data = engine.get_sensor_data(name);

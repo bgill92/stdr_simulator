@@ -7,11 +7,13 @@
 #include <string>
 #include <vector>
 
-namespace stdr_parser {
+namespace stdr_parser
+{
 
 /** @brief Accumulated validation errors. */
-struct ValidationResult {
-  bool valid{true};
+struct ValidationResult
+{
+  bool valid{ true };
   std::vector<std::string> errors;
 };
 
@@ -26,9 +28,7 @@ struct ValidationResult {
  *  @param root_type  The top-level entity type ("robot", "laser", etc.).
  *  @param specs_dir  Directory containing stdr_specifications.yaml.
  *  @return ValidationResult with all errors accumulated. */
-[[nodiscard]] ValidationResult validate_yaml(
-    const YAML::Node& yaml_node,
-    const std::string& root_type,
-    const std::string& specs_dir);
+[[nodiscard]] ValidationResult validate_yaml(const YAML::Node& yaml_node, const std::string& root_type,
+                                             const std::string& specs_dir);
 
 }  // namespace stdr_parser

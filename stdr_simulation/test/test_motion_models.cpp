@@ -7,8 +7,10 @@
 
 #include <numbers>
 
-namespace stdr_simulation::motion {
-namespace {
+namespace stdr_simulation::motion
+{
+namespace
+{
 
 using ::testing::DoubleNear;
 
@@ -26,8 +28,8 @@ constexpr double kTol = 1e-9;
 TEST(IdealMotionModelTest, StationaryRobotStaysStill)
 {
   const IdealMotionModel model;
-  const Pose2D start{1.0, 2.0, 0.5};
-  const Twist2D cmd{0.0, 0.0, 0.0};
+  const Pose2D start{ 1.0, 2.0, 0.5 };
+  const Twist2D cmd{ 0.0, 0.0, 0.0 };
   const Pose2D result = model.update(start, cmd, kDt, zero_noise_config());
   EXPECT_THAT(result.x, DoubleNear(start.x, kTol));
   EXPECT_THAT(result.y, DoubleNear(start.y, kTol));
@@ -37,9 +39,9 @@ TEST(IdealMotionModelTest, StationaryRobotStaysStill)
 TEST(IdealMotionModelTest, StraightLineMotion)
 {
   const IdealMotionModel model;
-  const Pose2D start{0.0, 0.0, 0.0};
+  const Pose2D start{ 0.0, 0.0, 0.0 };
   // Pure forward motion along x-axis.
-  const Twist2D cmd{1.0, 0.0, 0.0};
+  const Twist2D cmd{ 1.0, 0.0, 0.0 };
   const Pose2D result = model.update(start, cmd, kDt, zero_noise_config());
   EXPECT_THAT(result.x, DoubleNear(0.1, kTol));
   EXPECT_THAT(result.y, DoubleNear(0.0, kTol));
@@ -49,9 +51,9 @@ TEST(IdealMotionModelTest, StraightLineMotion)
 TEST(IdealMotionModelTest, PureRotation)
 {
   const IdealMotionModel model;
-  const Pose2D start{1.0, 1.0, 0.0};
+  const Pose2D start{ 1.0, 1.0, 0.0 };
   // Pure spin — position must not change.
-  const Twist2D cmd{0.0, 0.0, 1.0};
+  const Twist2D cmd{ 0.0, 0.0, 1.0 };
   const Pose2D result = model.update(start, cmd, kDt, zero_noise_config());
   // For a differential drive with v=0 and w≠0, exact arc kinematics produce
   // a degenerate arc (radius → ∞) so position stays fixed.
@@ -63,9 +65,9 @@ TEST(IdealMotionModelTest, PureRotation)
 TEST(IdealMotionModelTest, ArcMotion)
 {
   const IdealMotionModel model;
-  const Pose2D start{0.0, 0.0, 0.0};
+  const Pose2D start{ 0.0, 0.0, 0.0 };
   // Combined linear and angular → robot traces an arc.
-  const Twist2D cmd{1.0, 0.0, 1.0};
+  const Twist2D cmd{ 1.0, 0.0, 1.0 };
   const Pose2D result = model.update(start, cmd, kDt, zero_noise_config());
   // Both position components and heading must change.
   EXPECT_THAT(result.x, DoubleNear(0.0, 0.2));  // x moved but stays near origin.
@@ -77,9 +79,9 @@ TEST(IdealMotionModelTest, ArcMotion)
 TEST(IdealMotionModelTest, ThetaNormalized)
 {
   const IdealMotionModel model;
-  const Pose2D start{0.0, 0.0, std::numbers::pi - 0.01};
+  const Pose2D start{ 0.0, 0.0, std::numbers::pi - 0.01 };
   // A large angular step that pushes theta past π.
-  const Twist2D cmd{0.0, 0.0, 10.0};
+  const Twist2D cmd{ 0.0, 0.0, 10.0 };
   const Pose2D result = model.update(start, cmd, kDt, zero_noise_config());
   EXPECT_GE(result.theta, -std::numbers::pi);
   EXPECT_LE(result.theta, std::numbers::pi);
@@ -90,8 +92,8 @@ TEST(IdealMotionModelTest, ThetaNormalized)
 TEST(OmniMotionModelTest, StationaryRobotStaysStill)
 {
   const OmniMotionModel model;
-  const Pose2D start{3.0, -1.5, 0.8};
-  const Twist2D cmd{0.0, 0.0, 0.0};
+  const Pose2D start{ 3.0, -1.5, 0.8 };
+  const Twist2D cmd{ 0.0, 0.0, 0.0 };
   const Pose2D result = model.update(start, cmd, kDt, zero_noise_config());
   EXPECT_THAT(result.x, DoubleNear(start.x, kTol));
   EXPECT_THAT(result.y, DoubleNear(start.y, kTol));
@@ -101,10 +103,10 @@ TEST(OmniMotionModelTest, StationaryRobotStaysStill)
 TEST(OmniMotionModelTest, LateralMotion)
 {
   const OmniMotionModel model;
-  const Pose2D start{0.0, 0.0, 0.0};
+  const Pose2D start{ 0.0, 0.0, 0.0 };
   // Pure lateral command (strafe).  With theta=0 the y-axis aligns with
   // the robot's lateral direction, so y must increase.
-  const Twist2D cmd{0.0, 1.0, 0.0};
+  const Twist2D cmd{ 0.0, 1.0, 0.0 };
   const Pose2D result = model.update(start, cmd, kDt, zero_noise_config());
   EXPECT_THAT(result.x, DoubleNear(0.0, kTol));
   EXPECT_GT(result.y, 0.0);
@@ -114,8 +116,8 @@ TEST(OmniMotionModelTest, LateralMotion)
 TEST(OmniMotionModelTest, CombinedMotion)
 {
   const OmniMotionModel model;
-  const Pose2D start{0.0, 0.0, 0.0};
-  const Twist2D cmd{1.0, 1.0, 1.0};
+  const Pose2D start{ 0.0, 0.0, 0.0 };
+  const Twist2D cmd{ 1.0, 1.0, 1.0 };
   const Pose2D result = model.update(start, cmd, kDt, zero_noise_config());
   // All three DOF must change from zero.
   EXPECT_GT(result.x, 0.0);

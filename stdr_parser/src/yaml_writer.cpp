@@ -1,5 +1,6 @@
 #include <stdr_parser/yaml_writer.hpp>
 
+#include <yaml-cpp/yaml.h>
 #include <geometry_msgs/msg/point.hpp>
 #include <geometry_msgs/msg/pose2_d.hpp>
 #include <stdr_msgs/msg/co2_sensor_msg.hpp>
@@ -12,13 +13,14 @@
 #include <stdr_msgs/msg/sonar_sensor_msg.hpp>
 #include <stdr_msgs/msg/sound_sensor_msg.hpp>
 #include <stdr_msgs/msg/thermal_sensor_msg.hpp>
-#include <yaml-cpp/yaml.h>
 
 #include <fstream>
 #include <string>
 
-namespace stdr_parser {
-namespace {
+namespace stdr_parser
+{
+namespace
+{
 
 void emit_pose(YAML::Emitter& out, const geometry_msgs::msg::Pose2D& pose)
 {
@@ -50,10 +52,12 @@ void emit_footprint(YAML::Emitter& out, const stdr_msgs::msg::FootprintMsg& fp)
   out << YAML::Key << "footprint_specifications" << YAML::Value;
   out << YAML::BeginMap;
   out << YAML::Key << "radius" << YAML::Value << fp.radius;
-  if (!fp.points.empty()) {
+  if (!fp.points.empty())
+  {
     out << YAML::Key << "points" << YAML::Value;
     out << YAML::BeginSeq;
-    for (const geometry_msgs::msg::Point& pt : fp.points) {
+    for (const geometry_msgs::msg::Point& pt : fp.points)
+    {
       out << YAML::BeginMap;
       out << YAML::Key << "point" << YAML::Value;
       out << YAML::BeginMap;
@@ -219,12 +223,11 @@ void emit_kinematic(YAML::Emitter& out, const stdr_msgs::msg::KinematicMsg& kin)
 
 }  // namespace
 
-tl::expected<void, std::string> write_robot_yaml(
-    const stdr_msgs::msg::RobotMsg& msg,
-    const std::string& file_path)
+tl::expected<void, std::string> write_robot_yaml(const stdr_msgs::msg::RobotMsg& msg, const std::string& file_path)
 {
-  std::ofstream file{file_path};
-  if (!file.is_open()) {
+  std::ofstream file{ file_path };
+  if (!file.is_open())
+  {
     return tl::unexpected<std::string>("Cannot open file for writing: " + file_path);
   }
 
@@ -238,22 +241,28 @@ tl::expected<void, std::string> write_robot_yaml(
   emit_footprint(out, msg.footprint);
   emit_initial_pose(out, msg.initial_pose);
 
-  for (const stdr_msgs::msg::LaserSensorMsg& laser : msg.laser_sensors) {
+  for (const stdr_msgs::msg::LaserSensorMsg& laser : msg.laser_sensors)
+  {
     emit_laser(out, laser);
   }
-  for (const stdr_msgs::msg::SonarSensorMsg& sonar : msg.sonar_sensors) {
+  for (const stdr_msgs::msg::SonarSensorMsg& sonar : msg.sonar_sensors)
+  {
     emit_sonar(out, sonar);
   }
-  for (const stdr_msgs::msg::RfidSensorMsg& rfid : msg.rfid_sensors) {
+  for (const stdr_msgs::msg::RfidSensorMsg& rfid : msg.rfid_sensors)
+  {
     emit_rfid_reader(out, rfid);
   }
-  for (const stdr_msgs::msg::CO2SensorMsg& co2 : msg.co2_sensors) {
+  for (const stdr_msgs::msg::CO2SensorMsg& co2 : msg.co2_sensors)
+  {
     emit_co2_sensor(out, co2);
   }
-  for (const stdr_msgs::msg::ThermalSensorMsg& thermal : msg.thermal_sensors) {
+  for (const stdr_msgs::msg::ThermalSensorMsg& thermal : msg.thermal_sensors)
+  {
     emit_thermal_sensor(out, thermal);
   }
-  for (const stdr_msgs::msg::SoundSensorMsg& sound : msg.sound_sensors) {
+  for (const stdr_msgs::msg::SoundSensorMsg& sound : msg.sound_sensors)
+  {
     emit_sound_sensor(out, sound);
   }
 
@@ -263,12 +272,14 @@ tl::expected<void, std::string> write_robot_yaml(
   out << YAML::EndMap;
   out << YAML::EndMap;
 
-  if (!out.good()) {
-    return tl::unexpected<std::string>("YAML emitter error: " + std::string{out.GetLastError()});
+  if (!out.good())
+  {
+    return tl::unexpected<std::string>("YAML emitter error: " + std::string{ out.GetLastError() });
   }
 
   file << out.c_str();
-  if (!file) {
+  if (!file)
+  {
     return tl::unexpected<std::string>("Write error for file: " + file_path);
   }
 

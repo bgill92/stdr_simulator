@@ -19,8 +19,8 @@
    * Chris Zalidis, zalidis@gmail.com
 ******************************************************************************/
 
-#include "stdr_server/map_loader.h"
 #include <stdr_msgs/LoadExternalMap.h>
+#include "stdr_server/map_loader.h"
 
 #define USAGE "USAGE: load_map <map_file.yaml>"
 
@@ -30,46 +30,44 @@
 @param argv [char**] Input arguments
 @return int
 **/
-int main(int argc, char** argv) {
-
+int main(int argc, char** argv)
+{
   ros::init(argc, argv, "map_loader", ros::init_options::AnonymousName);
 
   ros::NodeHandle nh;
 
-  if (argc == 2) {
-
+  if (argc == 2)
+  {
     nav_msgs::OccupancyGrid map;
 
     map = stdr_server::map_loader::loadMap(std::string(argv[1]));
 
     ros::ServiceClient client;
 
-    while (!ros::service::waitForService(
-      "/stdr_server/load_static_map_external", ros::Duration(.1)) && ros::ok())
+    while (!ros::service::waitForService("/stdr_server/load_static_map_external", ros::Duration(.1)) && ros::ok())
     {
-      ROS_WARN(
-        "Trying to register to /stdr_server/load_static_map_external...");
+      ROS_WARN("Trying to register to /stdr_server/load_static_map_external...");
     }
-    client = nh.serviceClient<stdr_msgs::LoadExternalMap>
-      ("/stdr_server/load_static_map_external", true);
+    client = nh.serviceClient<stdr_msgs::LoadExternalMap>("/stdr_server/load_static_map_external", true);
 
     stdr_msgs::LoadExternalMap srv;
 
     srv.request.map = map;
 
-    if (client.call(srv)) {
+    if (client.call(srv))
+    {
       ROS_INFO("Map successfully loaded");
       return 0;
     }
-    else {
+    else
+    {
       ROS_ERROR("Could not load map, maybe already loaded...");
       return -1;
     }
-
   }
-  else {
+  else
+  {
     ROS_ERROR("%s", USAGE);
     return -1;
   }
-
 }

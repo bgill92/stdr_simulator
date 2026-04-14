@@ -19,72 +19,69 @@
    * Chris Zalidis, zalidis@gmail.com
 ******************************************************************************/
 
-#include "ros/ros.h"
-#include "tf/tf.h"
-#include "tf/transform_broadcaster.h"
 #include "nav_msgs/MapMetaData.h"
 #include "nav_msgs/OccupancyGrid.h"
+#include "ros/ros.h"
 #include "stdr_server/map_loader.h"
+#include "tf/tf.h"
+#include "tf/transform_broadcaster.h"
 
 /**
 @namespace stdr_server
 @brief The main namespace for STDR Server
 **/
-namespace stdr_server {
+namespace stdr_server
+{
+
+/**
+@class MapServer
+@brief Implements the STDR map server functionalities
+**/
+class MapServer
+{
+public:
+  /**
+  @brief Constructor by filename
+  @param fname [const std::string&] The file name
+  @return void
+  **/
+  explicit MapServer(const std::string& fname);
 
   /**
-  @class MapServer
-  @brief Implements the STDR map server functionalities
+  @brief Constructor by occupancy grid map
+  @param map [const nav_msgs::OccupancyGrid&] The occupancy grid map
+  @return void
   **/
-  class MapServer
-  {
-    public:
+  explicit MapServer(const nav_msgs::OccupancyGrid& map);
 
-      /**
-      @brief Constructor by filename
-      @param fname [const std::string&] The file name
-      @return void
-      **/
-      explicit MapServer(const std::string& fname);
+private:
+  /**
+  @brief Publishes the map data and metadata
+  @return void
+  **/
+  void publishData();
 
-      /**
-      @brief Constructor by occupancy grid map
-      @param map [const nav_msgs::OccupancyGrid&] The occupancy grid map
-      @return void
-      **/
-      explicit MapServer(const nav_msgs::OccupancyGrid& map);
+  /**
+  @brief Publishes the map to map_static transform
+  @param ev [const ros::TimerEvent&] A ROS timer event
+  @return void
+  **/
+  void publishTransform(const ros::TimerEvent& ev);
 
-    private:
-
-      /**
-      @brief Publishes the map data and metadata
-      @return void
-      **/
-      void publishData();
-
-      /**
-      @brief Publishes the map to map_static transform
-      @param ev [const ros::TimerEvent&] A ROS timer event
-      @return void
-      **/
-      void publishTransform(const ros::TimerEvent& ev);
-
-    private:
-
-      //!< The ROS node handle
-      ros::NodeHandle n;
-      //!< ROS publisher for posting the map
-      ros::Publisher map_pub;
-      //!< ROS publisher for posting the map metadata
-      ros::Publisher metadata_pub;
-      //!< ROS timer for tf posting
-      ros::Timer tfTimer;
-      //!< ROS tf broadcaster
-      tf::TransformBroadcaster tfBroadcaster;
-      //!< ROS map metadata message
-      nav_msgs::MapMetaData meta_data_message_;
-      //!< ROS occupancy grid message
-      nav_msgs::OccupancyGrid map_;
-
-  };
+private:
+  //!< The ROS node handle
+  ros::NodeHandle n;
+  //!< ROS publisher for posting the map
+  ros::Publisher map_pub;
+  //!< ROS publisher for posting the map metadata
+  ros::Publisher metadata_pub;
+  //!< ROS timer for tf posting
+  ros::Timer tfTimer;
+  //!< ROS tf broadcaster
+  tf::TransformBroadcaster tfBroadcaster;
+  //!< ROS map metadata message
+  nav_msgs::MapMetaData meta_data_message_;
+  //!< ROS occupancy grid message
+  nav_msgs::OccupancyGrid map_;
+};
 }  // namespace stdr_server

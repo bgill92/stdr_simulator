@@ -7,11 +7,13 @@
 
 #include <stdr_simulation/types.hpp>
 
-namespace stdr_simulation::world {
+namespace stdr_simulation::world
+{
 
 /** @brief Snapshot of a single robot's runtime state: config, pose, and
  *  current velocity command. */
-struct RobotState {
+struct RobotState
+{
   std::string name;
   stdr_simulation::RobotConfig config;
   stdr_simulation::Pose2D pose;
@@ -29,7 +31,8 @@ struct RobotState {
  * @warning Not thread-safe. Intended for use in a single-threaded simulation
  * step loop.
  */
-class WorldModel {
+class WorldModel
+{
 public:
   WorldModel() = default;
   ~WorldModel() = default;
@@ -142,7 +145,7 @@ public:
 private:
   std::optional<stdr_simulation::OccupancyGrid> map_;
   std::unordered_map<std::string, RobotState> robots_;
-  int next_robot_id_{0};
+  int next_robot_id_{ 0 };
 
   std::vector<stdr_simulation::RfidTag> rfid_tags_;
   std::vector<stdr_simulation::CO2Source> co2_sources_;

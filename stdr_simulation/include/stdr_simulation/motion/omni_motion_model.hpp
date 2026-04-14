@@ -6,7 +6,8 @@
 
 #include <random>
 
-namespace stdr_simulation::motion {
+namespace stdr_simulation::motion
+{
 
 /**
  * @brief Holonomic (omnidirectional) motion model with optional Gaussian velocity noise.
@@ -18,7 +19,8 @@ namespace stdr_simulation::motion {
  *
  * @warning Not thread-safe — each thread should own its own instance because
  *          the internal RNG is mutated on every call to update(). */
-class OmniMotionModel {
+class OmniMotionModel
+{
 public:
   OmniMotionModel();
   ~OmniMotionModel() = default;
@@ -32,11 +34,8 @@ public:
    * @param noise_params KinematicConfig encoding the alpha noise coefficients.
    * @return             The predicted next pose.
    */
-  [[nodiscard]] Pose2D update(
-      const Pose2D& current,
-      const Twist2D& cmd,
-      double dt,
-      const KinematicConfig& noise_params) const;
+  [[nodiscard]] Pose2D update(const Pose2D& current, const Twist2D& cmd, double dt,
+                              const KinematicConfig& noise_params) const;
 
 private:
   // Mutable because the RNG is internal implementation state, not observable

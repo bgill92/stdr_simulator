@@ -8,7 +8,8 @@
 #include <random>
 #include <stdr_simulation/types.hpp>
 
-namespace stdr_simulation::sensors {
+namespace stdr_simulation::sensors
+{
 
 /**
  * @brief Simulates an ultrasonic sonar sensor against the world occupancy grid.
@@ -19,7 +20,8 @@ namespace stdr_simulation::sensors {
  * @warning Not thread-safe. The internal RNG state is mutated on each call to
  *          simulate(). Use separate instances per thread.
  */
-class SonarSimulator {
+class SonarSimulator
+{
 public:
   SonarSimulator();
   ~SonarSimulator() = default;
@@ -32,8 +34,7 @@ public:
    * @param map               Occupancy grid to ray-march against.
    * @return SonarScan        Populated scan with the minimum range within the cone.
    */
-  [[nodiscard]] SonarScan simulate(const Pose2D& sensor_pose_world,
-                                   const SonarConfig& config,
+  [[nodiscard]] SonarScan simulate(const Pose2D& sensor_pose_world, const SonarConfig& config,
                                    const OccupancyGrid& map) const;
 
 private:
