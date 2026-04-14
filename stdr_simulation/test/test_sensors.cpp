@@ -13,10 +13,14 @@
 #include <numbers>
 #include <vector>
 
-namespace stdr_simulation::sensors {
-namespace {
+namespace stdr_simulation::sensors
+{
+namespace
+{
 
+using ::testing::DoubleNear;
 using ::testing::Each;
+using ::testing::FloatNear;
 using ::testing::Gt;
 using ::testing::IsEmpty;
 using ::testing::Lt;
@@ -33,10 +37,11 @@ OccupancyGrid make_walled_grid()
   grid.width = kSize;
   grid.height = kSize;
   grid.resolution = kRes;
-  grid.origin = {0.0, 0.0, 0.0};
+  grid.origin = { 0.0, 0.0, 0.0 };
   grid.data.assign(static_cast<std::size_t>(kSize * kSize), 0);
 
-  for (int i = 0; i < kSize; ++i) {
+  for (int i = 0; i < kSize; ++i)
+  {
     // Top and bottom rows.
     grid.data[static_cast<std::size_t>(0 * kSize + i)] = 100;
     grid.data[static_cast<std::size_t>(9 * kSize + i)] = 100;
@@ -55,7 +60,7 @@ OccupancyGrid make_free_grid()
   grid.width = kSize;
   grid.height = kSize;
   grid.resolution = 0.1;
-  grid.origin = {0.0, 0.0, 0.0};
+  grid.origin = { 0.0, 0.0, 0.0 };
   grid.data.assign(static_cast<std::size_t>(kSize * kSize), 0);
   return grid;
 }
@@ -74,7 +79,7 @@ TEST(LaserSimulatorTest, RayCountMatchesConfig)
   cfg.max_range = 5.0;
   cfg.num_rays = 9;
 
-  const Pose2D pose{0.5, 0.5, 0.0};
+  const Pose2D pose{ 0.5, 0.5, 0.0 };
   const LaserScan scan = sim.simulate(pose, cfg, map);
   ASSERT_THAT(scan.ranges, SizeIs(9));
 }
@@ -91,7 +96,7 @@ TEST(LaserSimulatorTest, EmptyMapAllMaxRange)
   cfg.max_range = 100.0;
   cfg.num_rays = 5;
 
-  const Pose2D pose{0.5, 0.5, 0.0};
+  const Pose2D pose{ 0.5, 0.5, 0.0 };
   const LaserScan scan = sim.simulate(pose, cfg, map);
   ASSERT_THAT(scan.ranges, SizeIs(5));
   // With no obstacles every ray should return max_range.
@@ -112,10 +117,38 @@ TEST(LaserSimulatorTest, WallInFront)
   cfg.max_range = 5.0;
   cfg.num_rays = 1;
 
-  const Pose2D pose{0.5, 0.5, 0.0};  // Grid centre.
+  const Pose2D pose{ 0.5, 0.5, 0.0 };  // Grid centre.
   const LaserScan scan = sim.simulate(pose, cfg, map);
   ASSERT_THAT(scan.ranges, SizeIs(1));
   EXPECT_THAT(scan.ranges[0], Lt(static_cast<float>(cfg.max_range)));
+}
+
+TEST(LaserSimulatorTest, NoiseIsZeroMeanNotBiased)
+{
+  // Verify that config.noise.mean does NOT act as a range bias.  We place the
+  // sensor so that a known obstacle is exactly 0.4 m away, enable noise with a
+  // non-zero mean (0.5) and a tiny std_dev, and confirm the measured range is
+  // close to the true obstacle distance — not shifted by 0.5 m.
+  const LaserSimulator sim;
+  const OccupancyGrid map = make_walled_grid();
+
+  LaserConfig cfg;
+  cfg.min_angle = 0.0;
+  cfg.max_angle = 0.0;
+  cfg.min_range = 0.05;
+  cfg.max_range = 5.0;
+  cfg.num_rays = 1;
+  cfg.noise.enabled = true;
+  cfg.noise.mean = 0.5;       // Must NOT bias the result.
+  cfg.noise.std_dev = 0.001;  // Tiny so individual samples stay near 0.
+
+  // Sensor at grid centre (0.5, 0.5); right wall is at grid column 9 → x=0.9 m,
+  // so the true range is approximately 0.4 m.
+  const Pose2D pose{ 0.5, 0.5, 0.0 };
+  const LaserScan scan = sim.simulate(pose, cfg, map);
+  ASSERT_THAT(scan.ranges, SizeIs(1));
+  // 0.01 m window is ~10 sigma — flake-free but tight enough to catch bias ≥ 0.01 m.
+  EXPECT_THAT(scan.ranges[0], FloatNear(0.4f, 0.01f));
 }
 
 // ---- SonarSimulatorTest -----------------------------------------------------
@@ -130,7 +163,7 @@ TEST(SonarSimulatorTest, EmptyMapMaxRange)
   cfg.max_range = 100.0;
   cfg.cone_angle = std::numbers::pi / 4.0;
 
-  const Pose2D pose{0.5, 0.5, 0.0};
+  const Pose2D pose{ 0.5, 0.5, 0.0 };
   const SonarScan scan = sim.simulate(pose, cfg, map);
   // The implementation signals "no obstacle found" with +infinity rather than
   // returning the configured max_range value directly.
@@ -149,9 +182,33 @@ TEST(SonarSimulatorTest, ObstacleInCone)
   cfg.cone_angle = std::numbers::pi / 4.0;
 
   // Sensor at centre pointing toward the right wall.
-  const Pose2D pose{0.5, 0.5, 0.0};
+  const Pose2D pose{ 0.5, 0.5, 0.0 };
   const SonarScan scan = sim.simulate(pose, cfg, map);
   EXPECT_LT(scan.range, cfg.max_range);
+}
+
+TEST(SonarSimulatorTest, NoiseIsZeroMeanNotBiased)
+{
+  // Same intent as the laser test: config.noise.mean must not bias the range.
+  const SonarSimulator sim;
+  const OccupancyGrid map = make_walled_grid();
+
+  SonarConfig cfg;
+  cfg.min_range = 0.05;
+  cfg.max_range = 5.0;
+  cfg.cone_angle = std::numbers::pi / 4.0;
+  cfg.noise.enabled = true;
+  cfg.noise.mean = 0.5;       // Must NOT bias the result.
+  cfg.noise.std_dev = 0.001;  // Tiny so individual samples stay near 0.
+
+  // Sensor at centre (0.5, 0.5) pointing toward the right wall; the cone
+  // samples oblique rays so the minimum range is ~0.5 m, not 0.4 m.
+  const Pose2D pose{ 0.5, 0.5, 0.0 };
+  const SonarScan scan = sim.simulate(pose, cfg, map);
+  // The sonar cone (π/4) samples oblique rays, so the true range is ~0.5 m
+  // (not 0.4 m as in the straight-line laser case).  A 0.02 m window is still
+  // tight enough to catch any bias ≥ 0.02 m while accommodating cone geometry.
+  EXPECT_THAT(scan.range, DoubleNear(0.5, 0.02));
 }
 
 // ---- RfidSimulatorTest ------------------------------------------------------
@@ -167,11 +224,11 @@ TEST(RfidSimulatorTest, TagInRange)
   RfidTag tag;
   tag.tag_id = "tag_001";
   tag.message = "hello";
-  tag.pose = {0.5, 0.5, 0.0};
+  tag.pose = { 0.5, 0.5, 0.0 };
 
   // Sensor at origin — tag is 0.5√2 ≈ 0.71 m away, well within range.
-  const Pose2D sensor_pose{0.0, 0.0, 0.0};
-  const RfidMeasurement result = sim.simulate(sensor_pose, cfg, {tag});
+  const Pose2D sensor_pose{ 0.0, 0.0, 0.0 };
+  const RfidMeasurement result = sim.simulate(sensor_pose, cfg, { tag });
   ASSERT_THAT(result.tag_ids, SizeIs(1));
   EXPECT_EQ(result.tag_ids[0], "tag_001");
 }
@@ -187,10 +244,10 @@ TEST(RfidSimulatorTest, TagOutOfRange)
   RfidTag tag;
   tag.tag_id = "tag_far";
   tag.message = "";
-  tag.pose = {5.0, 5.0, 0.0};  // 7+ m away.
+  tag.pose = { 5.0, 5.0, 0.0 };  // 7+ m away.
 
-  const Pose2D sensor_pose{0.0, 0.0, 0.0};
-  const RfidMeasurement result = sim.simulate(sensor_pose, cfg, {tag});
+  const Pose2D sensor_pose{ 0.0, 0.0, 0.0 };
+  const RfidMeasurement result = sim.simulate(sensor_pose, cfg, { tag });
   EXPECT_THAT(result.tag_ids, IsEmpty());
 }
 
@@ -203,7 +260,7 @@ TEST(Co2SimulatorTest, NoSourcesZeroPpm)
   CO2SensorConfig cfg;
   cfg.max_range = 5.0;
 
-  const Pose2D sensor_pose{0.0, 0.0, 0.0};
+  const Pose2D sensor_pose{ 0.0, 0.0, 0.0 };
   const CO2Measurement result = sim.simulate(sensor_pose, cfg, {});
   EXPECT_THAT(result.ppm, testing::DoubleNear(0.0, 1e-9));
 }
@@ -218,10 +275,10 @@ TEST(Co2SimulatorTest, SourceNearbyPositivePpm)
   CO2Source source;
   source.id = "src_0";
   source.ppm = 400.0;
-  source.pose = {0.1, 0.0, 0.0};  // Very close — within saturation zone.
+  source.pose = { 0.1, 0.0, 0.0 };  // Very close — within saturation zone.
 
-  const Pose2D sensor_pose{0.0, 0.0, 0.0};
-  const CO2Measurement result = sim.simulate(sensor_pose, cfg, {source});
+  const Pose2D sensor_pose{ 0.0, 0.0, 0.0 };
+  const CO2Measurement result = sim.simulate(sensor_pose, cfg, { source });
   EXPECT_GT(result.ppm, 0.0);
 }
 
