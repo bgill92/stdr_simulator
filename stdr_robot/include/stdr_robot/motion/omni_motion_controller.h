@@ -41,49 +41,42 @@ rotation.
 /**
 @namespace stdr_robot
 @brief The main namespace for STDR Robot
-**/ 
-namespace stdr_robot 
+**/
+namespace stdr_robot
 {
-  
-  /**
-  @class OmniMotionController
-  @brief A class that provides motion controller implementation. \
-  Inherits publicly MotionController
-  **/ 
-  class OmniMotionController : public MotionController 
-  {
-    
-    public:
-    
-      /**
-      @brief Default constructor
-      @param pose [const geometry_msgs::Pose2D&] The robot pose
-      @param tf [tf::TransformBroadcaster&] A ROS tf broadcaster
-      @param n [ros::NodeHandle&] The ROS node handle
-      @param name [const std::string&] The robot frame id
-      @return void
-      **/
-      OmniMotionController(
-        const geometry_msgs::Pose2D& pose, 
-        tf::TransformBroadcaster& tf, 
-        ros::NodeHandle& n, 
-        const std::string& name,
-        const stdr_msgs::KinematicMsg params);
-           
-      /**
-      @brief Calculates the motion - updates the robot pose
-      @param event [const ros::TimerEvent&] A ROS timer event
-      @return void
-      **/
-      void calculateMotion(const ros::TimerEvent& event);
-      
-      /**
-      @brief Default destructor 
-      @return void
-      **/
-      ~OmniMotionController(void);
-  };
-}
 
+/**
+@class OmniMotionController
+@brief A class that provides motion controller implementation. \
+Inherits publicly MotionController
+**/
+class OmniMotionController : public MotionController
+{
+public:
+  /**
+  @brief Default constructor
+  @param pose [const geometry_msgs::Pose2D&] The robot pose
+  @param tf [tf::TransformBroadcaster&] A ROS tf broadcaster
+  @param n [ros::NodeHandle&] The ROS node handle
+  @param name [const std::string&] The robot frame id
+  @return void
+  **/
+  OmniMotionController(const geometry_msgs::Pose2D& pose, tf::TransformBroadcaster& tf, ros::NodeHandle& n,
+                       const std::string& name, const stdr_msgs::KinematicMsg params);
+
+  /**
+  @brief Calculates the motion - updates the robot pose
+  @param event [const ros::TimerEvent&] A ROS timer event
+  @return void
+  **/
+  void calculateMotion(const ros::TimerEvent& event);
+
+  /**
+  @brief Default destructor
+  @return void
+  **/
+  ~OmniMotionController(void);
+};
+}  // namespace stdr_robot
 
 #endif

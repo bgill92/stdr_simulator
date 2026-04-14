@@ -5,25 +5,28 @@
 #include <cmath>
 #include <vector>
 
-namespace stdr_simulation::sensors {
+namespace stdr_simulation::sensors
+{
 
-RfidMeasurement RfidSimulator::simulate(
-    const Pose2D& sensor_pose_world,
-    const RfidSensorConfig& config,
-    const std::vector<RfidTag>& tags) const {
+RfidMeasurement RfidSimulator::simulate(const Pose2D& sensor_pose_world, const RfidSensorConfig& config,
+                                        const std::vector<RfidTag>& tags) const
+{
   RfidMeasurement measurement;
 
-  for (const RfidTag& tag : tags) {
+  for (const RfidTag& tag : tags)
+  {
     const double dx = tag.pose.x - sensor_pose_world.x;
     const double dy = tag.pose.y - sensor_pose_world.y;
     const double distance = std::sqrt(dx * dx + dy * dy);
 
-    if (distance > config.max_range) {
+    if (distance > config.max_range)
+    {
       continue;
     }
 
     const double angle_to_tag = std::atan2(dy, dx);
-    if (!angle_in_range(angle_to_tag, sensor_pose_world.theta, config.angle_span)) {
+    if (!angle_in_range(angle_to_tag, sensor_pose_world.theta, config.angle_span))
+    {
       continue;
     }
 

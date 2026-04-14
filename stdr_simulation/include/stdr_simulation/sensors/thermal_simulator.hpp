@@ -8,7 +8,8 @@
 #include <stdr_simulation/types.hpp>
 #include <vector>
 
-namespace stdr_simulation::sensors {
+namespace stdr_simulation::sensors
+{
 
 /**
  * @brief Simulates a thermal sensor detecting heat sources in the environment.
@@ -18,7 +19,8 @@ namespace stdr_simulation::sensors {
  * so it integrates with the ROS message format without post-processing.
  * Returns 0.0 degrees when no source is detected.
  */
-class ThermalSimulator {
+class ThermalSimulator
+{
 public:
   ThermalSimulator() = default;
   ~ThermalSimulator() = default;
@@ -31,10 +33,8 @@ public:
    * @param sources           Thermal emission sources in the environment.
    * @return ThermalMeasurement Single-element vector with the peak temperature.
    */
-  [[nodiscard]] ThermalMeasurement simulate(
-      const Pose2D& sensor_pose_world,
-      const ThermalSensorConfig& config,
-      const std::vector<ThermalSource>& sources) const;
+  [[nodiscard]] ThermalMeasurement simulate(const Pose2D& sensor_pose_world, const ThermalSensorConfig& config,
+                                            const std::vector<ThermalSource>& sources) const;
 };
 
 }  // namespace stdr_simulation::sensors

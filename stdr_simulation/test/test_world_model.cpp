@@ -1,5 +1,5 @@
-#include <stdr_simulation/world/world_model.hpp>
 #include <stdr_simulation/types.hpp>
+#include <stdr_simulation/world/world_model.hpp>
 
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
@@ -7,8 +7,10 @@
 #include <string>
 #include <vector>
 
-namespace stdr_simulation::world {
-namespace {
+namespace stdr_simulation::world
+{
+namespace
+{
 
 using ::testing::IsNull;
 using ::testing::NotNull;
@@ -64,7 +66,7 @@ TEST(WorldModelTest, AddAndRemoveRfidTag)
   RfidTag tag;
   tag.tag_id = "t0";
   tag.message = "hello";
-  tag.pose = {1.0, 2.0, 0.0};
+  tag.pose = { 1.0, 2.0, 0.0 };
 
   world.add_rfid_tag(tag);
   ASSERT_THAT(world.get_rfid_tags(), SizeIs(1));
@@ -90,7 +92,7 @@ TEST(WorldModelTest, SetRobotPose)
   WorldModel world;
   const std::string name = world.add_robot(minimal_robot_config());
 
-  const Pose2D new_pose{3.0, 4.0, 1.5};
+  const Pose2D new_pose{ 3.0, 4.0, 1.5 };
   world.set_robot_pose(name, new_pose);
 
   const RobotState* state = world.get_robot(name);
@@ -105,7 +107,7 @@ TEST(WorldModelTest, SetRobotCmdVel)
   WorldModel world;
   const std::string name = world.add_robot(minimal_robot_config());
 
-  const Twist2D cmd{1.0, 0.5, 0.2};
+  const Twist2D cmd{ 1.0, 0.5, 0.2 };
   world.set_robot_cmd_vel(name, cmd);
 
   const RobotState* state = world.get_robot(name);

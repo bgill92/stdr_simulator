@@ -12,11 +12,11 @@
    You should have received a copy of the GNU General Public License
    along with this program; if not, write to the Free Software Foundation,
    Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301  USA
-   
-   Authors : 
+
+   Authors :
    * Manos Tsardoulias, etsardou@gmail.com
    * Aris Thallas, aris.thallas@gmail.com
-   * Chris Zalidis, zalidis@gmail.com 
+   * Chris Zalidis, zalidis@gmail.com
 ******************************************************************************/
 
 #include <stdexcept>
@@ -24,42 +24,39 @@
 #ifndef EXCEPTIONS_H
 #define EXCEPTIONS_H
 
-namespace stdr_robot {
+namespace stdr_robot
+{
 
 /**
 @class ConnectionException
 @brief Provides a connection exception. Publicly inherits from std::runtime_error. Used in robot handler.
-**/ 
+**/
 class ConnectionException : public std::runtime_error
 {
-  public:
-    /**
-    @brief Throws an std::runtime_error with a messsage
-    @param errorDescription [const std::string] The error message
-    **/ 
-    ConnectionException(const std::string errorDescription) : 
-      std::runtime_error(errorDescription) 
-    {
-    }
-
+public:
+  /**
+  @brief Throws an std::runtime_error with a messsage
+  @param errorDescription [const std::string] The error message
+  **/
+  ConnectionException(const std::string errorDescription) : std::runtime_error(errorDescription)
+  {
+  }
 };
 /**
 @class DoubleFrameIdException
 @brief Provides a double frame id exception. Publicly inherits from std::runtime_error. Used in robot handler.
-**/ 
+**/
 class DoubleFrameIdException : public std::runtime_error
 {
-  public:
-    /**
-    @brief Throws an std::runtime_error with a messsage
-    @param errorDescription [const std::string] The error message
-    **/ 
-    DoubleFrameIdException(const std::string errorDescription) : 
-      std::runtime_error(errorDescription) 
-    {
-    }
-
+public:
+  /**
+  @brief Throws an std::runtime_error with a messsage
+  @param errorDescription [const std::string] The error message
+  **/
+  DoubleFrameIdException(const std::string errorDescription) : std::runtime_error(errorDescription)
+  {
+  }
 };
-} // end of namespace stdr_robot
+}  // end of namespace stdr_robot
 
 #endif

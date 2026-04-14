@@ -10,10 +10,12 @@
 
 #include <random>
 
-namespace stdr_simulation::motion {
+namespace stdr_simulation::motion
+{
 
 /** Holds the result of apply_noise: the noisy command and the extra drift term. */
-struct NoiseResult {
+struct NoiseResult
+{
   Twist2D noisy_cmd;
   double drift;  ///< Extra angular drift term (g) that couples translation into heading error.
 };
@@ -36,9 +38,6 @@ struct NoiseResult {
  *  @param params       KinematicConfig holding the alpha noise coefficients.
  *  @param rng          Random engine (caller-owned; modified in place).
  *  @return             NoiseResult containing the noisy command and drift term. */
-[[nodiscard]] NoiseResult apply_noise(
-    const Twist2D& cmd,
-    const KinematicConfig& params,
-    std::mt19937& rng);
+[[nodiscard]] NoiseResult apply_noise(const Twist2D& cmd, const KinematicConfig& params, std::mt19937& rng);
 
 }  // namespace stdr_simulation::motion

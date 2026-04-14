@@ -8,7 +8,8 @@
 #include <random>
 #include <stdr_simulation/types.hpp>
 
-namespace stdr_simulation::sensors {
+namespace stdr_simulation::sensors
+{
 
 /**
  * @brief Simulates a 2D laser range scanner against the world occupancy grid.
@@ -19,7 +20,8 @@ namespace stdr_simulation::sensors {
  * @warning Not thread-safe. The internal RNG state is mutated on each call to
  *          simulate(). Use separate instances per thread.
  */
-class LaserSimulator {
+class LaserSimulator
+{
 public:
   LaserSimulator();
   ~LaserSimulator() = default;
@@ -32,8 +34,7 @@ public:
    * @param map               Occupancy grid to ray-march against.
    * @return LaserScan        Populated scan with one range per ray.
    */
-  [[nodiscard]] LaserScan simulate(const Pose2D& sensor_pose_world,
-                                   const LaserConfig& config,
+  [[nodiscard]] LaserScan simulate(const Pose2D& sensor_pose_world, const LaserConfig& config,
                                    const OccupancyGrid& map) const;
 
 private:

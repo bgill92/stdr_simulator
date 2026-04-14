@@ -16,8 +16,10 @@
 #include <filesystem>
 #include <string>
 
-namespace stdr_parser {
-namespace {
+namespace stdr_parser
+{
+namespace
+{
 
 using ::testing::SizeIs;
 
@@ -51,8 +53,7 @@ stdr_msgs::msg::RobotMsg make_test_robot()
 TEST(YamlWriter, WriteToInvalidPathReturnsError)
 {
   const stdr_msgs::msg::RobotMsg msg = make_test_robot();
-  const tl::expected<void, std::string> result =
-      write_robot_yaml(msg, "/nonexistent/dir/robot.yaml");
+  const tl::expected<void, std::string> result = write_robot_yaml(msg, "/nonexistent/dir/robot.yaml");
   EXPECT_FALSE(result.has_value());
 }
 

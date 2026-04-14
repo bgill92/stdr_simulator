@@ -8,7 +8,8 @@
 #include <stdr_simulation/types.hpp>
 #include <vector>
 
-namespace stdr_simulation::sensors {
+namespace stdr_simulation::sensors
+{
 
 /**
  * @brief Simulates a microphone detecting sound sources in the environment.
@@ -18,7 +19,8 @@ namespace stdr_simulation::sensors {
  * closer than 0.5 m contribute their full rated dB (clamping prevents
  * division-by-zero and models saturation at very short distances).
  */
-class SoundSimulator {
+class SoundSimulator
+{
 public:
   SoundSimulator() = default;
   ~SoundSimulator() = default;
@@ -31,10 +33,8 @@ public:
    * @param sources           Sound emission sources in the environment.
    * @return SoundMeasurement Total dB accumulated from all in-range sources.
    */
-  [[nodiscard]] SoundMeasurement simulate(
-      const Pose2D& sensor_pose_world,
-      const SoundSensorConfig& config,
-      const std::vector<SoundSource>& sources) const;
+  [[nodiscard]] SoundMeasurement simulate(const Pose2D& sensor_pose_world, const SoundSensorConfig& config,
+                                          const std::vector<SoundSource>& sources) const;
 };
 
 }  // namespace stdr_simulation::sensors

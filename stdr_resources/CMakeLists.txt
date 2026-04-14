@@ -3,8 +3,6 @@ project(stdr_resources)
 
 find_package(ament_cmake REQUIRED)
 
-install(DIRECTORY resources maps
-  DESTINATION share/${PROJECT_NAME}
-)
+install(DIRECTORY resources maps DESTINATION share/${PROJECT_NAME})
 
 ament_package()
