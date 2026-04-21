@@ -156,6 +156,28 @@ TEST(StandaloneBackend, SetRobotPoseUpdatesPose)
   EXPECT_DOUBLE_EQ(snapshot->robots[0].pose.y, 3.0);
 }
 
+// --- Velocity commands ---
+
+TEST(StandaloneBackend, SetCmdVelMovesRobot)
+{
+  StandaloneBackend backend;
+  // No map is loaded so collision checking is skipped, letting the robot move freely.
+  const std::string name = backend.spawn_robot(robot_path(), { 0.0, 0.0, 0.0 }).value();
+
+  // Command the robot to drive forward along x at 0.5 m/s.
+  backend.set_cmd_vel(name, stdr_simulation::Twist2D{ .linear_x = 0.5, .linear_y = 0.0, .angular_z = 0.0 });
+
+  // Run the async loop long enough for several 10 Hz steps (~200 ms = ~2 steps).
+  backend.start();
+  std::this_thread::sleep_for(std::chrono::milliseconds(250));
+  backend.pause();
+
+  const auto snapshot = backend.get_snapshot();
+  ASSERT_THAT(snapshot->robots, SizeIs(1));
+  // At least one integration step at 0.5 m/s * 0.1 s = 0.05 m should have occurred.
+  EXPECT_GT(snapshot->robots[0].pose.x, 0.01);
+}
+
 // --- Messages ---
 
 TEST(StandaloneBackend, PollMessagesReturnsAndDrains)

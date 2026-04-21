@@ -112,6 +112,12 @@ void StandaloneBackend::set_robot_pose(const std::string& name, const stdr_simul
   world_model_.set_robot_pose(name, pose);
 }
 
+void StandaloneBackend::set_cmd_vel(const std::string& robot_name, const stdr_simulation::Twist2D& cmd)
+{
+  const std::lock_guard<std::mutex> lock(sim_mutex_);
+  engine_.set_cmd_vel(robot_name, cmd);
+}
+
 std::shared_ptr<const stdr_gui::SimulationSnapshot> StandaloneBackend::get_snapshot() const
 {
   stdr_gui::SimulationSnapshot snapshot;

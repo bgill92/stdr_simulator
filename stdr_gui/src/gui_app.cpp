@@ -11,6 +11,7 @@
 
 #include <algorithm>
 #include <numbers>
+#include <string>
 #include <unordered_set>
 
 namespace stdr_gui
@@ -134,6 +135,9 @@ void GuiApp::render_frame(const SimulationSnapshot& snapshot)
 
   ImGui::SetNextWindowPos(ImVec2(0.0f, content_y), ImGuiCond_Always);
   ImGui::SetNextWindowSize(ImVec2(left_w, content_h), ImGuiCond_Always);
+  // Propagate the RobotInfoPanel selection into MapPanel so the velocity
+  // overlay always reflects the same robot that teleop is driving.
+  map_panel_.set_teleop_target(robot_info_panel_.selected_robot());
   map_panel_.render(snapshot, *backend_, sensors_visible);
 
   ImGui::SetNextWindowPos(ImVec2(left_w, content_y), ImGuiCond_Always);
@@ -142,6 +146,8 @@ void GuiApp::render_frame(const SimulationSnapshot& snapshot)
 
   handle_file_dialog_result();
   render_spawn_dialog();
+  render_teleop_window();
+  dispatch_teleop(snapshot);
 
   // Render sensor windows, removing any that have been closed.
   std::erase_if(sensor_windows_, [&snapshot](const std::unique_ptr<SensorWindow>& w) { return !w->render(snapshot); });
@@ -229,6 +235,118 @@ void GuiApp::render_spawn_dialog()
 
     ImGui::EndPopup();
   }
+}
+
+void GuiApp::render_teleop_window()
+{
+  const std::string& selected_name = robot_info_panel_.selected_robot();
+  if (selected_name.empty())
+  {
+    return;
+  }
+
+  ImGui::Begin("Teleop");
+
+  ImGui::Text("Driving: %s", selected_name.c_str());
+  ImGui::Separator();
+
+  // Use SliderScalar to bind directly to the double members without a narrowing
+  // conversion — TeleopSpeeds stores doubles, not floats.
+  constexpr double kLinearMin = 0.05;
+  constexpr double kLinearMax = 3.0;
+  ImGui::SliderScalar("Linear (m/s)", ImGuiDataType_Double, &teleop_.speeds().linear, &kLinearMin, &kLinearMax, "%.2f");
+
+  constexpr double kAngularMin = 0.1;
+  constexpr double kAngularMax = 4.0;
+  ImGui::SliderScalar("Angular (rad/s)", ImGuiDataType_Double, &teleop_.speeds().angular, &kAngularMin, &kAngularMax,
+                      "%.2f");
+
+  ImGui::Separator();
+
+  ImGui::TextDisabled("Keys: W/S forward/back  A/D strafe (omni)");
+  ImGui::TextDisabled("      Q/E turn left/right");
+  ImGui::TextDisabled("      Arrow keys also supported");
+
+  ImGui::End();
+}
+
+void GuiApp::dispatch_teleop(const SimulationSnapshot& snapshot)
+{
+  // A helper lambda that sends one zero command and clears the active flag,
+  // ensuring the robot stops cleanly when teleop is interrupted.
+  const auto send_stop = [&](const std::string& name) {
+    if (was_teleop_active_)
+    {
+      backend_->set_cmd_vel(name, stdr_simulation::Twist2D{});
+      was_teleop_active_ = false;
+    }
+  };
+
+  // Bail out early if no robot is selected — send_stop with an empty name
+  // would be a no-op anyway, but checking here makes the invariant explicit
+  // and prevents any accidental call to set_cmd_vel with an empty name.
+  const std::string& selected_name = robot_info_panel_.selected_robot();
+  if (selected_name.empty())
+  {
+    send_stop(selected_name);
+    return;
+  }
+
+  // Skip key reading when a text widget has keyboard focus to avoid driving
+  // the robot while the user is typing (e.g. in the spawn pose dialog).
+  // We still emit one zero command so the robot stops cleanly if it was moving.
+  if (ImGui::GetIO().WantCaptureKeyboard)
+  {
+    send_stop(selected_name);
+    return;
+  }
+
+  // Locate the robot in the current snapshot so we can read its kinematic type.
+  const stdr_simulation::world::RobotState* robot_state = nullptr;
+  for (const stdr_simulation::world::RobotState& r : snapshot.robots)
+  {
+    if (r.name == selected_name)
+    {
+      robot_state = &r;
+      break;
+    }
+  }
+
+  if (robot_state == nullptr)
+  {
+    // Robot was deleted; stop commanding it.
+    send_stop(selected_name);
+    return;
+  }
+
+  const KinematicType kinematics = kinematic_type_from_string(robot_state->config.kinematic_model.type);
+
+  TeleopKeys keys;
+  keys.forward = ImGui::IsKeyDown(ImGuiKey_W) || ImGui::IsKeyDown(ImGuiKey_UpArrow);
+  keys.backward = ImGui::IsKeyDown(ImGuiKey_S) || ImGui::IsKeyDown(ImGuiKey_DownArrow);
+  keys.left = ImGui::IsKeyDown(ImGuiKey_A) || ImGui::IsKeyDown(ImGuiKey_LeftArrow);
+  keys.right = ImGui::IsKeyDown(ImGuiKey_D) || ImGui::IsKeyDown(ImGuiKey_RightArrow);
+  keys.turn_left = ImGui::IsKeyDown(ImGuiKey_Q);
+  keys.turn_right = ImGui::IsKeyDown(ImGuiKey_E);
+
+  const stdr_simulation::Twist2D cmd = teleop_.update(keys, kinematics);
+
+  const bool cmd_nonzero = (cmd.linear_x != 0.0 || cmd.linear_y != 0.0 || cmd.angular_z != 0.0);
+
+  if (cmd_nonzero)
+  {
+    backend_->set_cmd_vel(selected_name, cmd);
+    was_teleop_active_ = true;
+  }
+  else if (was_teleop_active_)
+  {
+    // Keys just released: send one zero command so the robot stops, then
+    // go silent until keys are pressed again.
+    backend_->set_cmd_vel(selected_name, stdr_simulation::Twist2D{});
+    was_teleop_active_ = false;
+  }
+  // If cmd is zero and was_teleop_active_ is false, do nothing — the robot
+  // is already stopped and there is no need to spam zero commands every frame.
 }
 
 }  // namespace stdr_gui

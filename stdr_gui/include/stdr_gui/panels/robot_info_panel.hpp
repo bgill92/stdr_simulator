@@ -25,6 +25,9 @@ public:
   /** @brief Check if sensor visualization is enabled for a robot. */
   [[nodiscard]] bool show_sensors_for(const std::string& robot_name) const;
 
+  /** @brief Get the currently selected robot name (empty if none). */
+  [[nodiscard]] const std::string& selected_robot() const;
+
 private:
   void render_robot_entry(const stdr_simulation::world::RobotState& robot,
                           const stdr_simulation::RobotSensorData* sensor_data, SimulatorBackend& backend,
