@@ -20,6 +20,7 @@ public:
 
 private:
   void render_menu_bar(SimulatorBackend& backend, FileDialog& file_dialog);
+  void render_control_bar(SimulatorBackend& backend);
   void render_status_bar(const SimulationSnapshot& snapshot, SimulatorBackend& backend);
 
   double speed_multiplier_{ 1.0 };
@@ -28,5 +29,11 @@ private:
 
 /** @brief Format elapsed seconds as HH:MM:SS.cs (centiseconds). */
 [[nodiscard]] std::string format_elapsed_time(double seconds);
+
+/** @brief Height of the control bar strip reserved by Toolbar. */
+[[nodiscard]] float control_bar_height();
+
+/** @brief Height of the bottom status strip reserved by Toolbar. */
+[[nodiscard]] float status_bar_height();
 
 }  // namespace stdr_gui

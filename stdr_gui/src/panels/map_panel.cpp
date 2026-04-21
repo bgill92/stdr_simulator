@@ -67,6 +67,14 @@ void MapPanel::render(const SimulationSnapshot& snapshot, SimulatorBackend& back
     cached_origin_x_ = grid.origin.x;
     cached_origin_y_ = grid.origin.y;
     cached_resolution_ = grid.resolution;
+
+    // In locked mode, reset the transform every frame so the map fills the
+    // panel exactly regardless of any prior pan/zoom state.
+    if (locked_view_)
+    {
+      const ImVec2 avail = ImGui::GetContentRegionAvail();
+      transform_.fit_to_view(avail.x, avail.y);
+    }
   }
 
   handle_input(backend);
@@ -138,20 +146,23 @@ void MapPanel::handle_input(SimulatorBackend& backend)
   const float mx = mouse_pos.x - window_pos.x;
   const float my = mouse_pos.y - window_pos.y;
 
-  // Middle-mouse drag for pan.
-  if (ImGui::IsMouseDragging(ImGuiMouseButton_Middle))
+  if (!locked_view_)
   {
-    const ImVec2 delta = ImGui::GetMouseDragDelta(ImGuiMouseButton_Middle);
-    transform_.pan(delta.x, delta.y);
-    ImGui::ResetMouseDragDelta(ImGuiMouseButton_Middle);
-  }
+    // Middle-mouse drag for pan.
+    if (ImGui::IsMouseDragging(ImGuiMouseButton_Middle))
+    {
+      const ImVec2 delta = ImGui::GetMouseDragDelta(ImGuiMouseButton_Middle);
+      transform_.pan(delta.x, delta.y);
+      ImGui::ResetMouseDragDelta(ImGuiMouseButton_Middle);
+    }
 
-  // Mouse wheel for zoom.
-  const float wheel = ImGui::GetIO().MouseWheel;
-  if (wheel != 0.0f)
-  {
-    const float factor = (wheel > 0.0f) ? 1.1f : (1.0f / 1.1f);
-    transform_.zoom(mx, my, factor);
+    // Mouse wheel for zoom.
+    const float wheel = ImGui::GetIO().MouseWheel;
+    if (wheel != 0.0f)
+    {
+      const float factor = (wheel > 0.0f) ? 1.1f : (1.0f / 1.1f);
+      transform_.zoom(mx, my, factor);
+    }
   }
 
   // Left-click: select a robot closest to the click.
@@ -576,6 +587,9 @@ void MapPanel::render_context_menu(SimulatorBackend& backend, const SimulationSn
 {
   if (ImGui::BeginPopupContextWindow("##MapContextMenu"))
   {
+    ImGui::MenuItem("Lock view", nullptr, &locked_view_);
+    ImGui::Separator();
+
     if (!selected_robot_.empty())
     {
       ImGui::Text("Robot: %s", selected_robot_.c_str());

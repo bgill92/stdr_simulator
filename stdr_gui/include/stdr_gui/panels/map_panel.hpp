@@ -66,6 +66,7 @@ private:
   std::string selected_robot_;
   std::string teleop_target_;
   bool show_grid_{ false };
+  bool locked_view_{ false };
   bool dragging_robot_{ false };
 
   // Screen position where the context menu was opened, captured on right-click
