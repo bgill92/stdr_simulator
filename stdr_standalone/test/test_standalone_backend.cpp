@@ -203,6 +203,45 @@ TEST(StandaloneBackend, SetSpeedDoesNotCrash)
   ASSERT_NE(snapshot, nullptr);
 }
 
+// --- Step dt ---
+
+TEST(StandaloneBackend, DefaultStepDtMatchesConstant)
+{
+  StandaloneBackend backend;
+  EXPECT_DOUBLE_EQ(backend.get_step_dt(), stdr_gui::kDefaultStepDt);
+}
+
+TEST(StandaloneBackend, SetStepDtClampsToValidRange)
+{
+  StandaloneBackend backend;
+
+  backend.set_step_dt(-1.0);
+  EXPECT_EQ(backend.get_step_dt(), stdr_gui::kMinStepDt);
+
+  backend.set_step_dt(100.0);
+  EXPECT_EQ(backend.get_step_dt(), stdr_gui::kMaxStepDt);
+}
+
+TEST(StandaloneBackend, SetStepDtChangesElapsedTimeRate)
+{
+  StandaloneBackend backend;
+  // No map loaded so collision checking is skipped; we only need the clock to tick.
+  std::ignore = backend.spawn_robot(robot_path(), { 0.0, 0.0, 0.0 });
+
+  // step dt = 0.05 s; sleeping ~250 ms wall-clock fires roughly 5 ticks, so
+  // sim-time ≈ 0.25 s.  Bounds are intentionally loose to tolerate scheduling
+  // jitter: lower bound assumes at least 3 ticks, upper bound allows up to
+  // ~18 ticks on a loaded CI machine.
+  backend.set_step_dt(0.05);
+  backend.start();
+  std::this_thread::sleep_for(std::chrono::milliseconds(250));
+  backend.pause();
+
+  const auto snapshot = backend.get_snapshot();
+  EXPECT_GT(snapshot->elapsed_time, 0.15);
+  EXPECT_LT(snapshot->elapsed_time, 0.9);
+}
+
 TEST(StandaloneBackend, DeleteNonexistentRobotIsNoOp)
 {
   StandaloneBackend backend;
