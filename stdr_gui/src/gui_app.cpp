@@ -14,6 +14,14 @@
 #include <string>
 #include <unordered_set>
 
+namespace
+{
+// The right column occupies this fraction of the total viewport width.
+constexpr float kRightPanelFraction = 0.25f;
+// Fixed height reserved for the teleop panel when a robot is selected.
+constexpr float kTeleopPanelHeight = 220.0f;
+}  // namespace
+
 namespace stdr_gui
 {
 
@@ -114,12 +122,15 @@ void GuiApp::render_frame(const SimulationSnapshot& snapshot)
 
   // Use the viewport work area so panel layout adapts to the menu bar height
   // at any DPI, without querying the GLFW window size in logical coordinates.
+  // Reserve the bottom strip for the status bar so panels don't draw over it.
   const ImGuiViewport* viewport = ImGui::GetMainViewport();
-  const float content_y = viewport->WorkPos.y;
-  const float content_h = viewport->WorkSize.y;
+  const float control_h = stdr_gui::control_bar_height();
+  const float status_h = stdr_gui::status_bar_height();
+  // Offset content_y downward to clear the control bar sitting just below the menu.
+  const float content_y = viewport->WorkPos.y + control_h;
+  const float content_h = viewport->WorkSize.y - control_h - status_h;
   const float total_w = viewport->WorkSize.x;
 
-  constexpr float kRightPanelFraction = 0.25f;
   const float left_w = total_w * (1.0f - kRightPanelFraction);
   const float right_w = total_w * kRightPanelFraction;
 
@@ -140,8 +151,13 @@ void GuiApp::render_frame(const SimulationSnapshot& snapshot)
   map_panel_.set_teleop_target(robot_info_panel_.selected_robot());
   map_panel_.render(snapshot, *backend_, sensors_visible);
 
+  // Shrink the Robot Info panel to make room for the pinned Teleop panel below
+  // it whenever a robot is selected.
+  const bool teleop_visible = !robot_info_panel_.selected_robot().empty();
+  const float robot_info_h = teleop_visible ? content_h - kTeleopPanelHeight : content_h;
+
   ImGui::SetNextWindowPos(ImVec2(left_w, content_y), ImGuiCond_Always);
-  ImGui::SetNextWindowSize(ImVec2(right_w, content_h), ImGuiCond_Always);
+  ImGui::SetNextWindowSize(ImVec2(right_w, robot_info_h), ImGuiCond_Always);
   robot_info_panel_.render(snapshot, *backend_, sensor_windows_);
 
   handle_file_dialog_result();
@@ -245,7 +261,24 @@ void GuiApp::render_teleop_window()
     return;
   }
 
-  ImGui::Begin("Teleop");
+  const ImGuiViewport* viewport = ImGui::GetMainViewport();
+  const float total_w = viewport->WorkSize.x;
+  const float right_w = total_w * kRightPanelFraction;
+  const float left_w = total_w - right_w;
+  const float status_h = stdr_gui::status_bar_height();
+
+  // Anchor directly from the viewport bottom so the teleop panel always sits
+  // just above the status bar, regardless of how tall the control bar is.
+  const float bar_bottom_y = viewport->WorkPos.y + viewport->WorkSize.y - status_h;
+
+  // Pin the teleop panel to the bottom of the right column, directly below
+  // the Robot Info panel, so users always know where to find it.
+  ImGui::SetNextWindowPos(ImVec2(left_w, bar_bottom_y - kTeleopPanelHeight), ImGuiCond_Always);
+  ImGui::SetNextWindowSize(ImVec2(right_w, kTeleopPanelHeight), ImGuiCond_Always);
+
+  constexpr ImGuiWindowFlags kTeleopFlags =
+      ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoCollapse;
+  ImGui::Begin("Teleop", nullptr, kTeleopFlags);
 
   ImGui::Text("Driving: %s", selected_name.c_str());
   ImGui::Separator();

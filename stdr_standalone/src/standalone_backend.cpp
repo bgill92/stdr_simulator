@@ -6,6 +6,7 @@
 
 #include <tl_expected/expected.hpp>
 
+#include <algorithm>
 #include <chrono>
 #include <cstdlib>
 #include <filesystem>
@@ -106,6 +107,17 @@ void StandaloneBackend::set_speed(double multiplier)
   speed_.store(multiplier, std::memory_order_relaxed);
 }
 
+void StandaloneBackend::set_step_dt(double seconds)
+{
+  const double clamped = std::clamp(seconds, stdr_gui::kMinStepDt, stdr_gui::kMaxStepDt);
+  step_dt_.store(clamped, std::memory_order_relaxed);
+}
+
+double StandaloneBackend::get_step_dt() const
+{
+  return step_dt_.load(std::memory_order_relaxed);
+}
+
 void StandaloneBackend::set_robot_pose(const std::string& name, const stdr_simulation::Pose2D& pose)
 {
   const std::lock_guard<std::mutex> lock(sim_mutex_);
@@ -163,11 +175,9 @@ std::vector<std::string> StandaloneBackend::poll_messages()
 
 void StandaloneBackend::simulation_loop(std::stop_token stop_token)
 {
-  // 10 Hz simulation step, matching the ROS-based mode.
-  constexpr double kStepDt = 0.1;
-
   while (!stop_token.stop_requested())
   {
+    double step_dt = 0.0;
     {
       std::unique_lock<std::mutex> lock(sim_mutex_);
       // Returns false when stop is requested while waiting, in which case we exit.
@@ -175,14 +185,16 @@ void StandaloneBackend::simulation_loop(std::stop_token stop_token)
       {
         break;
       }
+      // Load step_dt once per iteration for a consistent tick interval and physics dt.
+      step_dt = step_dt_.load(std::memory_order_relaxed);
       // Still holding sim_mutex_ — step the simulation while state is locked.
-      const double effective_dt = kStepDt * speed_.load(std::memory_order_relaxed);
+      const double effective_dt = step_dt * speed_.load(std::memory_order_relaxed);
       engine_.step(effective_dt);
       elapsed_time_ += effective_dt;
     }
 
     // Sleep for the real-time step interval outside the lock.
-    std::this_thread::sleep_for(std::chrono::duration<double>(kStepDt));
+    std::this_thread::sleep_for(std::chrono::duration<double>(step_dt));
   }
 }
 

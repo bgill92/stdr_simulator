@@ -33,6 +33,8 @@ public:
   void pause() override;
   void reset() override;
   void set_speed(double multiplier) override;
+  void set_step_dt(double seconds) override;
+  [[nodiscard]] double get_step_dt() const override;
   void set_robot_pose(const std::string& name, const stdr_simulation::Pose2D& pose) override;
   void set_cmd_vel(const std::string& robot_name, const stdr_simulation::Twist2D& cmd) override;
   [[nodiscard]] std::shared_ptr<const stdr_gui::SimulationSnapshot> get_snapshot() const override;
@@ -50,6 +52,7 @@ private:
   std::condition_variable_any cv_;
   std::atomic<bool> running_{ false };
   std::atomic<double> speed_{ 1.0 };
+  std::atomic<double> step_dt_{ stdr_gui::kDefaultStepDt };
   double elapsed_time_{ 0.0 };
 
   std::string map_name_;

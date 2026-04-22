@@ -14,6 +14,10 @@
 namespace stdr_gui
 {
 
+inline constexpr double kMinStepDt = 0.001;
+inline constexpr double kMaxStepDt = 1.0;
+inline constexpr double kDefaultStepDt = 0.1;
+
 /** @brief Thread-safe snapshot of simulation state for the GUI to render.
  *
  *  The backend populates this on its thread and the GUI reads it on the
@@ -67,6 +71,18 @@ public:
 
   /** @brief Set simulation speed multiplier (1.0 = realtime). */
   virtual void set_speed(double multiplier) = 0;
+
+  /** @brief Set the simulation step duration in seconds.
+   *
+   *  Controls both the real-time tick interval and the dt passed to the
+   *  physics engine. Smaller values increase CPU cost and sensor sampling
+   *  rate; larger values coarsen integration. Orthogonal to set_speed().
+   *
+   *  Implementations must clamp to [kMinStepDt, kMaxStepDt]. */
+  virtual void set_step_dt(double seconds) = 0;
+
+  /** @brief Current simulation step duration in seconds. */
+  [[nodiscard]] virtual double get_step_dt() const = 0;
 
   /** @brief Teleport a robot to a new pose (e.g. drag-and-drop). */
   virtual void set_robot_pose(const std::string& name, const stdr_simulation::Pose2D& pose) = 0;
