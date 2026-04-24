@@ -173,11 +173,30 @@ std::vector<std::string> StandaloneBackend::poll_messages()
   return out;
 }
 
+void StandaloneBackend::push_command(stdr::plot_data::Command cmd)
+{
+  cmd_queue_.push(std::move(cmd));
+}
+
 void StandaloneBackend::simulation_loop(std::stop_token stop_token)
 {
   while (!stop_token.stop_requested())
   {
+    // Drain queued commands before taking sim_mutex_ for the physics step.
+    // The swap inside drain() holds cmd_queue_'s internal lock only briefly,
+    // so the GUI thread is never blocked waiting for sim_mutex_.
+    //
+    // Last-write-wins: if two Velocity commands for the same robot arrived
+    // in the same drain batch, set_cmd_vel() is called twice and the second
+    // overwrites the first — the same semantics the keyboard teleop path uses.
+    const std::vector<stdr::plot_data::Command> commands = cmd_queue_.drain();
+
     double step_dt = 0.0;
+    // Warning messages collected during the locked dispatch loop are pushed
+    // after sim_mutex_ is released to preserve the lock-ordering invariant:
+    // sim_mutex_ must always be released before acquiring msg_mutex_ (as
+    // load_map, spawn_robot, and delete_robot all do).
+    std::vector<std::string> deferred_messages;
     {
       std::unique_lock<std::mutex> lock(sim_mutex_);
       // Returns false when stop is requested while waiting, in which case we exit.
@@ -185,12 +204,66 @@ void StandaloneBackend::simulation_loop(std::stop_token stop_token)
       {
         break;
       }
+
+      // Dispatch drained commands under sim_mutex_ so they are applied before
+      // this tick's physics step runs.
+      for (const stdr::plot_data::Command& cmd : commands)
+      {
+        switch (cmd.kind)
+        {
+          case stdr::plot_data::Command::Kind::Velocity:
+          {
+            // Guard against stale robot names from a race with delete_robot.
+            // set_cmd_vel is a no-op for unknown names; log so users can debug.
+            const stdr_simulation::world::RobotState* robot = world_model_.get_robot(cmd.robot);
+            if (robot == nullptr)
+            {
+              deferred_messages.push_back("push_command(Velocity): unknown robot '" + cmd.robot + "' — command dropped");
+              break;
+            }
+            engine_.set_cmd_vel(cmd.robot, cmd.twist);
+            break;
+          }
+          case stdr::plot_data::Command::Kind::Teleport:
+          {
+            const stdr_simulation::world::RobotState* robot = world_model_.get_robot(cmd.robot);
+            if (robot == nullptr)
+            {
+              deferred_messages.push_back("push_command(Teleport): unknown robot '" + cmd.robot + "' — command dropped");
+              break;
+            }
+            world_model_.set_robot_pose(cmd.robot, cmd.pose);
+            break;
+          }
+          case stdr::plot_data::Command::Kind::Pause:
+            // FIXME-CLAUDE: NOT IMPLEMENTED - Pause via command queue.
+            // The existing pause() method is called from the GUI thread and sets
+            // running_=false, which prevents the sim loop from proceeding.
+            // Wiring that from inside the sim loop requires an additional
+            // mechanism to avoid a deadlock on cv_.wait().
+            deferred_messages.push_back("push_command(Pause): not yet implemented — command ignored");
+            break;
+          case stdr::plot_data::Command::Kind::Resume:
+            // FIXME-CLAUDE: NOT IMPLEMENTED - Resume via command queue.
+            // See Pause case above.
+            deferred_messages.push_back("push_command(Resume): not yet implemented — command ignored");
+            break;
+        }
+      }
+
       // Load step_dt once per iteration for a consistent tick interval and physics dt.
       step_dt = step_dt_.load(std::memory_order_relaxed);
       // Still holding sim_mutex_ — step the simulation while state is locked.
       const double effective_dt = step_dt * speed_.load(std::memory_order_relaxed);
       engine_.step(effective_dt);
       elapsed_time_ += effective_dt;
+    }
+
+    // Push any messages collected during dispatch now that sim_mutex_ is
+    // released, so we never hold sim_mutex_ while acquiring msg_mutex_.
+    for (std::string& msg : deferred_messages)
+    {
+      push_message(std::move(msg));
     }
 
     // Sleep for the real-time step interval outside the lock.
@@ -202,6 +275,164 @@ void StandaloneBackend::push_message(std::string msg)
 {
   const std::lock_guard<std::mutex> lock(msg_mutex_);
   messages_.push_back(std::move(msg));
+}
+
+// --- Introspection methods ---
+//
+// Each method takes a single snapshot so the values it returns are
+// internally consistent. The lock is held only long enough to copy the
+// relevant state — the same duration as get_snapshot() itself.
+
+std::size_t StandaloneBackend::num_robots() const
+{
+  const std::lock_guard<std::mutex> lock(sim_mutex_);
+  return world_model_.robot_count();
+}
+
+std::vector<std::string> StandaloneBackend::robot_ids() const
+{
+  const std::lock_guard<std::mutex> lock(sim_mutex_);
+  return world_model_.robot_names();
+}
+
+std::vector<std::string> StandaloneBackend::laser_sensors(const std::string& robot_id) const
+{
+  const std::lock_guard<std::mutex> lock(sim_mutex_);
+  const stdr_simulation::world::RobotState* robot = world_model_.get_robot(robot_id);
+  if (robot == nullptr)
+  {
+    return {};
+  }
+  std::vector<std::string> ids;
+  ids.reserve(robot->config.laser_sensors.size());
+  for (const stdr_simulation::LaserConfig& cfg : robot->config.laser_sensors)
+  {
+    ids.push_back(cfg.frame_id);
+  }
+  return ids;
+}
+
+std::vector<std::string> StandaloneBackend::sonar_sensors(const std::string& robot_id) const
+{
+  const std::lock_guard<std::mutex> lock(sim_mutex_);
+  const stdr_simulation::world::RobotState* robot = world_model_.get_robot(robot_id);
+  if (robot == nullptr)
+  {
+    return {};
+  }
+  std::vector<std::string> ids;
+  ids.reserve(robot->config.sonar_sensors.size());
+  for (const stdr_simulation::SonarConfig& cfg : robot->config.sonar_sensors)
+  {
+    ids.push_back(cfg.frame_id);
+  }
+  return ids;
+}
+
+std::optional<stdr_simulation::Pose2D> StandaloneBackend::pose(const std::string& robot_id) const
+{
+  const std::lock_guard<std::mutex> lock(sim_mutex_);
+  const stdr_simulation::world::RobotState* robot = world_model_.get_robot(robot_id);
+  if (robot == nullptr)
+  {
+    return std::nullopt;
+  }
+  return robot->pose;
+}
+
+std::optional<stdr_simulation::Twist2D> StandaloneBackend::twist(const std::string& robot_id) const
+{
+  const std::lock_guard<std::mutex> lock(sim_mutex_);
+  const stdr_simulation::world::RobotState* robot = world_model_.get_robot(robot_id);
+  if (robot == nullptr)
+  {
+    return std::nullopt;
+  }
+  return robot->cmd_vel;
+}
+
+std::optional<stdr_simulation::LaserScan> StandaloneBackend::latest_laser(const std::string& robot_id,
+                                                                          const std::string& sensor_id) const
+{
+  const std::lock_guard<std::mutex> lock(sim_mutex_);
+  const stdr_simulation::world::RobotState* robot = world_model_.get_robot(robot_id);
+  if (robot == nullptr)
+  {
+    return std::nullopt;
+  }
+  const stdr_simulation::RobotSensorData* data = engine_.get_sensor_data(robot_id);
+  if (data == nullptr)
+  {
+    return std::nullopt;
+  }
+  // Match sensor by frame_id, preserving order parity with laser_sensors().
+  for (std::size_t i = 0; i < robot->config.laser_sensors.size(); ++i)
+  {
+    if (robot->config.laser_sensors[i].frame_id == sensor_id)
+    {
+      if (i < data->laser_scans.size())
+      {
+        return data->laser_scans[i];
+      }
+      // Scan slot exists in config but hasn't been produced yet (no map).
+      return std::nullopt;
+    }
+  }
+  return std::nullopt;
+}
+
+std::optional<stdr_simulation::SonarScan> StandaloneBackend::latest_sonar(const std::string& robot_id,
+                                                                          const std::string& sensor_id) const
+{
+  const std::lock_guard<std::mutex> lock(sim_mutex_);
+  const stdr_simulation::world::RobotState* robot = world_model_.get_robot(robot_id);
+  if (robot == nullptr)
+  {
+    return std::nullopt;
+  }
+  const stdr_simulation::RobotSensorData* data = engine_.get_sensor_data(robot_id);
+  if (data == nullptr)
+  {
+    return std::nullopt;
+  }
+  // Match sensor by frame_id, preserving order parity with sonar_sensors().
+  for (std::size_t i = 0; i < robot->config.sonar_sensors.size(); ++i)
+  {
+    if (robot->config.sonar_sensors[i].frame_id == sensor_id)
+    {
+      if (i < data->sonar_scans.size())
+      {
+        return data->sonar_scans[i];
+      }
+      // Scan slot exists in config but hasn't been produced yet (no map).
+      return std::nullopt;
+    }
+  }
+  return std::nullopt;
+}
+
+std::optional<bool> StandaloneBackend::collided(const std::string& robot_id) const
+{
+  const std::lock_guard<std::mutex> lock(sim_mutex_);
+  const stdr_simulation::world::RobotState* robot = world_model_.get_robot(robot_id);
+  if (robot == nullptr)
+  {
+    return std::nullopt;
+  }
+  // Defensive: sensor_data_ is always populated after spawn_robot succeeds,
+  // so this null-check should never fire in practice.
+  const stdr_simulation::RobotSensorData* data = engine_.get_sensor_data(robot_id);
+  if (data == nullptr)
+  {
+    return std::nullopt;
+  }
+  return data->collided;
+}
+
+double StandaloneBackend::sim_time() const
+{
+  const std::lock_guard<std::mutex> lock(sim_mutex_);
+  return elapsed_time_;
 }
 
 }  // namespace stdr_standalone

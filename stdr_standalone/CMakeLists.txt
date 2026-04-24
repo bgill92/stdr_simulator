@@ -52,7 +52,8 @@ if(BUILD_TESTING)
   target_link_libraries(test_standalone_backend ${PROJECT_NAME} GTest::gmock)
   target_compile_definitions(
     test_standalone_backend
-    PRIVATE STDR_RESOURCES_DIR="${CMAKE_CURRENT_SOURCE_DIR}/../stdr_resources")
+    PRIVATE STDR_RESOURCES_DIR="${CMAKE_CURRENT_SOURCE_DIR}/../stdr_resources"
+            STDR_TEST_DIR="${CMAKE_CURRENT_SOURCE_DIR}/test")
 
   ament_add_gtest(test_map_loader test/test_map_loader.cpp)
   target_link_libraries(test_map_loader ${PROJECT_NAME} GTest::gmock)

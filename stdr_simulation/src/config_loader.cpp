@@ -57,6 +57,8 @@ LaserConfig parse_laser_specs(const YAML::Node& specs)
     cfg.num_rays = specs["num_rays"].as<std::int32_t>();
   if (specs["frequency"])
     cfg.frequency = specs["frequency"].as<double>();
+  if (specs["frame_id"])
+    cfg.frame_id = specs["frame_id"].as<std::string>();
   if (specs["pose"])
     cfg.pose = parse_pose(specs["pose"]);
   cfg.noise = parse_noise(specs);
@@ -98,6 +100,8 @@ LaserConfig parse_laser_specs(const YAML::Node& specs)
       cfg.num_rays = specs["num_rays"].as<std::int32_t>();
     if (specs["frequency"])
       cfg.frequency = specs["frequency"].as<double>();
+    if (specs["frame_id"])
+      cfg.frame_id = specs["frame_id"].as<std::string>();
     if (specs["pose"])
       cfg.pose = parse_pose(specs["pose"]);
     const NoiseConfig override_noise = parse_noise(specs);
@@ -118,6 +122,8 @@ SonarConfig parse_sonar_specs(const YAML::Node& specs)
     cfg.cone_angle = specs["cone_angle"].as<double>();
   if (specs["frequency"])
     cfg.frequency = specs["frequency"].as<double>();
+  if (specs["frame_id"])
+    cfg.frame_id = specs["frame_id"].as<std::string>();
   if (specs["pose"])
     cfg.pose = parse_pose(specs["pose"]);
   cfg.noise = parse_noise(specs);
@@ -154,6 +160,8 @@ SonarConfig parse_sonar_specs(const YAML::Node& specs)
       cfg.cone_angle = specs["cone_angle"].as<double>();
     if (specs["frequency"])
       cfg.frequency = specs["frequency"].as<double>();
+    if (specs["frame_id"])
+      cfg.frame_id = specs["frame_id"].as<std::string>();
     if (specs["pose"])
       cfg.pose = parse_pose(specs["pose"]);
     const NoiseConfig override_noise = parse_noise(specs);

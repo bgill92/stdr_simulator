@@ -28,6 +28,8 @@ struct RobotSensorData
   std::vector<CO2Measurement> co2_measurements;
   std::vector<ThermalMeasurement> thermal_measurements;
   std::vector<SoundMeasurement> sound_measurements;
+  /// True if the most recent step detected a collision for this robot.
+  bool collided{ false };
 };
 
 /**

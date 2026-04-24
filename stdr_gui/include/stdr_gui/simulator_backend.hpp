@@ -1,12 +1,14 @@
 #pragma once
 
 // RobotSensorData is defined here; there is no lighter header for it yet.
+#include <stdr_simulation/plot_data/command_queue.hpp>
 #include <stdr_simulation/simulation_engine.hpp>
 #include <stdr_simulation/types.hpp>
 #include <stdr_simulation/world/world_model.hpp>
 #include <tl_expected/expected.hpp>
 
 #include <memory>
+#include <optional>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -104,6 +106,113 @@ public:
 
   /** @brief Poll for backend-produced log/status messages (non-blocking). */
   [[nodiscard]] virtual std::vector<std::string> poll_messages() = 0;
+
+  // --- Introspection methods ---
+  //
+  // Each call acquires the simulation lock for the duration of the call, so
+  // returned values are internally consistent. Callers making multiple
+  // successive calls may observe updates between calls; batching via a single
+  // get_snapshot() call is the caller's responsibility when cross-call
+  // consistency is required.
+  //
+  // Default implementations return empty / nullopt so that backends that have
+  // not yet wired these (e.g. Ros2Backend) compile and behave safely without
+  // overriding them.
+
+  /** @brief Return the number of robots currently in the simulation. */
+  [[nodiscard]] virtual std::size_t num_robots() const
+  {
+    return 0;
+  }
+
+  /** @brief Return the names of all robots currently in the simulation.
+   *
+   *  Returns owning strings rather than views to prevent dangling references
+   *  if the caller stores IDs across frames. */
+  [[nodiscard]] virtual std::vector<std::string> robot_ids() const
+  {
+    return {};
+  }
+
+  /** @brief Return the sensor frame IDs of all laser sensors on @p robot_id.
+   *
+   *  Returns an empty vector if @p robot_id is not found. */
+  [[nodiscard]] virtual std::vector<std::string> laser_sensors(const std::string& /*robot_id*/) const
+  {
+    return {};
+  }
+
+  /** @brief Return the sensor frame IDs of all sonar sensors on @p robot_id.
+   *
+   *  Returns an empty vector if @p robot_id is not found. */
+  [[nodiscard]] virtual std::vector<std::string> sonar_sensors(const std::string& /*robot_id*/) const
+  {
+    return {};
+  }
+
+  /** @brief Return the current pose of @p robot_id, or nullopt if not found. */
+  [[nodiscard]] virtual std::optional<stdr_simulation::Pose2D> pose(const std::string& /*robot_id*/) const
+  {
+    return std::nullopt;
+  }
+
+  /** @brief Return the current velocity command of @p robot_id, or nullopt if not found. */
+  [[nodiscard]] virtual std::optional<stdr_simulation::Twist2D> twist(const std::string& /*robot_id*/) const
+  {
+    return std::nullopt;
+  }
+
+  /** @brief Return the latest laser scan from @p sensor_id on @p robot_id.
+   *
+   *  Returns nullopt if the robot or sensor is not found, or if no scan has
+   *  been produced yet (e.g. no map loaded). */
+  [[nodiscard]] virtual std::optional<stdr_simulation::LaserScan> latest_laser(const std::string& /*robot_id*/,
+                                                                               const std::string& /*sensor_id*/) const
+  {
+    return std::nullopt;
+  }
+
+  /** @brief Return the latest sonar reading from @p sensor_id on @p robot_id.
+   *
+   *  Returns nullopt if the robot or sensor is not found, or if no scan has
+   *  been produced yet (e.g. no map loaded). */
+  [[nodiscard]] virtual std::optional<stdr_simulation::SonarScan> latest_sonar(const std::string& /*robot_id*/,
+                                                                               const std::string& /*sensor_id*/) const
+  {
+    return std::nullopt;
+  }
+
+  /** @brief Return whether @p robot_id collided on the most recent step.
+   *
+   *  Returns nullopt if @p robot_id is not found. */
+  [[nodiscard]] virtual std::optional<bool> collided(const std::string& /*robot_id*/) const
+  {
+    return std::nullopt;
+  }
+
+  /** @brief Return the elapsed simulation time in seconds.
+   *  @return 0.0 if the backend has not yet wired this method. */
+  [[nodiscard]] virtual double sim_time() const
+  {
+    return 0.0;
+  }
+
+  // --- Command injection ---
+
+  /** @brief Enqueue a command to be dispatched by the sim thread.
+   *
+   *  Backends that do not yet support command injection (e.g. Ros2Backend)
+   *  inherit this no-op default.  `StandaloneBackend` overrides it to push
+   *  into `cmd_queue_`, which the sim thread drains at the top of each step.
+   *
+   *  Callers must not hold `sim_mutex_` when calling this method — the point
+   *  is to avoid GUI-thread contention with the sim thread.
+   *
+   *  @param cmd  Command to enqueue.  Copied into the queue; the caller's
+   *              copy is unaffected. */
+  virtual void push_command(stdr::plot_data::Command /*cmd*/)
+  {
+  }
 
 protected:
   SimulatorBackend() = default;

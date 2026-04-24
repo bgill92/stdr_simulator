@@ -1,6 +1,7 @@
 #pragma once
 
 #include <stdr_gui/simulator_backend.hpp>
+#include <stdr_simulation/plot_data/command_queue.hpp>
 #include <stdr_simulation/simulation_engine.hpp>
 #include <stdr_simulation/world/world_model.hpp>
 
@@ -8,6 +9,7 @@
 #include <condition_variable>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <string>
 #include <thread>
 #include <vector>
@@ -40,6 +42,21 @@ public:
   [[nodiscard]] std::shared_ptr<const stdr_gui::SimulationSnapshot> get_snapshot() const override;
   [[nodiscard]] std::vector<std::string> poll_messages() override;
 
+  [[nodiscard]] std::size_t num_robots() const override;
+  [[nodiscard]] std::vector<std::string> robot_ids() const override;
+  [[nodiscard]] std::vector<std::string> laser_sensors(const std::string& robot_id) const override;
+  [[nodiscard]] std::vector<std::string> sonar_sensors(const std::string& robot_id) const override;
+  [[nodiscard]] std::optional<stdr_simulation::Pose2D> pose(const std::string& robot_id) const override;
+  [[nodiscard]] std::optional<stdr_simulation::Twist2D> twist(const std::string& robot_id) const override;
+  [[nodiscard]] std::optional<stdr_simulation::LaserScan> latest_laser(const std::string& robot_id,
+                                                                       const std::string& sensor_id) const override;
+  [[nodiscard]] std::optional<stdr_simulation::SonarScan> latest_sonar(const std::string& robot_id,
+                                                                       const std::string& sensor_id) const override;
+  [[nodiscard]] std::optional<bool> collided(const std::string& robot_id) const override;
+  [[nodiscard]] double sim_time() const override;
+
+  void push_command(stdr::plot_data::Command cmd) override;
+
 private:
   void simulation_loop(std::stop_token stop_token);
   void push_message(std::string msg);
@@ -59,6 +76,11 @@ private:
 
   std::mutex msg_mutex_;
   std::vector<std::string> messages_;
+
+  // Receives commands from the GUI/plotter threads and is drained by the sim
+  // thread at the top of each step — decoupled from sim_mutex_ so callers
+  // never contend with the sim thread's physics lock.
+  stdr::plot_data::CommandQueue cmd_queue_;
 };
 
 }  // namespace stdr_standalone
