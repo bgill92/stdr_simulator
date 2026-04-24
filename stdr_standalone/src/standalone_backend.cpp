@@ -2,7 +2,9 @@
 
 #include "stdr_standalone/map_loader.hpp"
 
+#include <stdr_gui/plot/plotter.hpp>
 #include <stdr_simulation/config_loader.hpp>
+#include <stdr_simulation/plot_data/spsc_ring.hpp>
 
 #include <tl_expected/expected.hpp>
 
@@ -257,6 +259,11 @@ void StandaloneBackend::simulation_loop(std::stop_token stop_token)
       const double effective_dt = step_dt * speed_.load(std::memory_order_relaxed);
       engine_.step(effective_dt);
       elapsed_time_ += effective_dt;
+
+      // Push new sensor readings into SPSC rings so plotters can drain them.
+      // We do this under sim_mutex_ (already held) so the push happens
+      // atomically with the step — the snapshot and rings are always consistent.
+      push_sensor_events_locked(elapsed_time_);
     }
 
     // Push any messages collected during dispatch now that sim_mutex_ is
@@ -275,6 +282,95 @@ void StandaloneBackend::push_message(std::string msg)
 {
   const std::lock_guard<std::mutex> lock(msg_mutex_);
   messages_.push_back(std::move(msg));
+}
+
+// --- Sensor event log ---
+
+void StandaloneBackend::push_sensor_events_locked(double timestamp)
+{
+  // Called from simulation_loop() while sim_mutex_ is held.
+  // Pushes the laser/sonar results from the most recent engine_.step() into
+  // SPSC rings so plotters can drain them independently.
+  //
+  // Lock ordering: sim_mutex_ (caller) → sensor_ring_mutex_ (here).
+  // poll_laser_events() / poll_sonar_events() acquire only sensor_ring_mutex_
+  // and never sim_mutex_, so this ordering is deadlock-free.
+  const std::lock_guard<std::mutex> ring_lock(sensor_ring_mutex_);
+  const std::vector<stdr_simulation::world::RobotState> robots = world_model_.get_all_robots();
+  for (const stdr_simulation::world::RobotState& robot : robots)
+  {
+    const stdr_simulation::RobotSensorData* data = engine_.get_sensor_data(robot.name);
+    if (data == nullptr)
+    {
+      continue;
+    }
+
+    // Laser sensors — correlate by index with robot.config.laser_sensors.
+    for (std::size_t i = 0; i < robot.config.laser_sensors.size() && i < data->laser_scans.size(); ++i)
+    {
+      const std::string key = robot.name + "/" + robot.config.laser_sensors[i].frame_id;
+      auto ring_it = laser_rings_.find(key);
+      if (ring_it == laser_rings_.end())
+      {
+        ring_it = laser_rings_
+                      .emplace(key, std::make_unique<stdr::plot_data::SpscRing<stdr::plot::TimedLaserScan>>(
+                                        stdr::plot_data::kDefaultSensorLogCapacity))
+                      .first;
+      }
+      ring_it->second->push(stdr::plot::TimedLaserScan{ timestamp, data->laser_scans[i] });
+    }
+
+    // Sonar sensors — same pattern.
+    for (std::size_t i = 0; i < robot.config.sonar_sensors.size() && i < data->sonar_scans.size(); ++i)
+    {
+      const std::string key = robot.name + "/" + robot.config.sonar_sensors[i].frame_id;
+      auto ring_it = sonar_rings_.find(key);
+      if (ring_it == sonar_rings_.end())
+      {
+        ring_it = sonar_rings_
+                      .emplace(key, std::make_unique<stdr::plot_data::SpscRing<stdr::plot::TimedSonarReading>>(
+                                        stdr::plot_data::kDefaultSensorLogCapacity))
+                      .first;
+      }
+      ring_it->second->push(stdr::plot::TimedSonarReading{ timestamp, data->sonar_scans[i] });
+    }
+  }
+}
+
+stdr_gui::DrainedLaserResult StandaloneBackend::poll_laser_events(std::uint64_t& cursor, const std::string& robot_id,
+                                                                  const std::string& sensor_id)
+{
+  const std::string key = robot_id + "/" + sensor_id;
+  const std::lock_guard<std::mutex> ring_lock(sensor_ring_mutex_);
+  auto it = laser_rings_.find(key);
+  if (it == laser_rings_.end())
+  {
+    return {};
+  }
+  const stdr::plot_data::DrainResult<stdr::plot::TimedLaserScan> result = it->second->drain(cursor);
+  // Copy the span into an owning vector while still holding ring_lock.  The
+  // sim thread can call push() as soon as the lock is released, so any access
+  // to result.entries after this scope would be a data race.
+  return stdr_gui::DrainedLaserResult{
+    std::vector<stdr::plot::TimedLaserScan>(result.entries.begin(), result.entries.end()), result.dropped
+  };
+}
+
+stdr_gui::DrainedSonarResult StandaloneBackend::poll_sonar_events(std::uint64_t& cursor, const std::string& robot_id,
+                                                                  const std::string& sensor_id)
+{
+  const std::string key = robot_id + "/" + sensor_id;
+  const std::lock_guard<std::mutex> ring_lock(sensor_ring_mutex_);
+  auto it = sonar_rings_.find(key);
+  if (it == sonar_rings_.end())
+  {
+    return {};
+  }
+  const stdr::plot_data::DrainResult<stdr::plot::TimedSonarReading> result = it->second->drain(cursor);
+  // Copy under lock — same rationale as poll_laser_events above.
+  return stdr_gui::DrainedSonarResult{
+    std::vector<stdr::plot::TimedSonarReading>(result.entries.begin(), result.entries.end()), result.dropped
+  };
 }
 
 // --- Introspection methods ---

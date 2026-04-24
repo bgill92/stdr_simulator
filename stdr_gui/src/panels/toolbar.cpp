@@ -4,6 +4,7 @@
 
 #include <cmath>
 #include <format>
+#include <functional>
 #include <string>
 #include <vector>
 
@@ -28,14 +29,16 @@ std::string format_elapsed_time(double seconds)
   return std::format("{:02d}:{:02d}:{:02d}.{:02d}", hours, mins, secs, cs);
 }
 
-void Toolbar::render(SimulatorBackend& backend, FileDialog& file_dialog, const SimulationSnapshot& snapshot)
+void Toolbar::render(SimulatorBackend& backend, FileDialog& file_dialog, const SimulationSnapshot& snapshot,
+                     const std::function<void()>& view_menu_extra)
 {
-  render_menu_bar(backend, file_dialog);
+  render_menu_bar(backend, file_dialog, view_menu_extra);
   render_control_bar(backend);
   render_status_bar(snapshot, backend);
 }
 
-void Toolbar::render_menu_bar(SimulatorBackend& backend, FileDialog& file_dialog)
+void Toolbar::render_menu_bar(SimulatorBackend& backend, FileDialog& file_dialog,
+                              const std::function<void()>& view_menu_extra)
 {
   if (!ImGui::BeginMainMenuBar())
   {
@@ -121,6 +124,21 @@ void Toolbar::render_menu_bar(SimulatorBackend& backend, FileDialog& file_dialog
       ImGui::EndMenu();
     }
     ImGui::EndMenu();
+  }
+
+  // Only render the View menu when there are extra items to show (e.g. the
+  // plot panel's Pause/Remove controls).  Avoids an empty, misleading menu.
+  if (view_menu_extra)
+  {
+    if (ImGui::BeginMenu("View"))
+    {
+      if (ImGui::BeginMenu("Plots"))
+      {
+        view_menu_extra();
+        ImGui::EndMenu();
+      }
+      ImGui::EndMenu();
+    }
   }
 
   ImGui::EndMainMenuBar();

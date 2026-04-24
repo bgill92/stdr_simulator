@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.16)
+cmake_minimum_required(VERSION 3.24)
 project(stdr_standalone)
 
 find_package(ament_cmake REQUIRED)
@@ -28,7 +28,12 @@ add_executable(stdr_standalone_exe src/main.cpp)
 target_compile_features(stdr_standalone_exe PRIVATE cxx_std_20)
 set_target_properties(stdr_standalone_exe PROPERTIES CXX_EXTENSIONS OFF)
 
-target_link_libraries(stdr_standalone_exe PRIVATE ${PROJECT_NAME})
+# Link the plotters library with WHOLE_ARCHIVE so every plotter TU's static
+# initializer runs and the registry is populated before main().
+target_link_libraries(
+  stdr_standalone_exe
+  PRIVATE ${PROJECT_NAME}
+          $<LINK_LIBRARY:WHOLE_ARCHIVE,stdr_gui::stdr_gui_plotters>)
 
 install(DIRECTORY include/ DESTINATION include)
 
@@ -60,6 +65,19 @@ if(BUILD_TESTING)
   target_compile_definitions(
     test_map_loader
     PRIVATE STDR_RESOURCES_DIR="${CMAKE_CURRENT_SOURCE_DIR}/../stdr_resources")
+
+  # SimView integration tests need the standalone backend and the sim_view.cpp
+  # factory function from stdr_gui.  Link stdr_gui_plotters with WHOLE_ARCHIVE
+  # so the PoseErrorPlotter static initializer runs and the registry test can
+  # verify that dead-strip protection is working end-to-end.
+  ament_add_gtest(test_sim_view test/test_sim_view.cpp)
+  target_link_libraries(
+    test_sim_view ${PROJECT_NAME} GTest::gmock
+    $<LINK_LIBRARY:WHOLE_ARCHIVE,stdr_gui::stdr_gui_plotters>)
+  target_compile_definitions(
+    test_sim_view
+    PRIVATE STDR_RESOURCES_DIR="${CMAKE_CURRENT_SOURCE_DIR}/../stdr_resources"
+            STDR_TEST_DIR="${CMAKE_CURRENT_SOURCE_DIR}/test")
 endif()
 
 ament_package()

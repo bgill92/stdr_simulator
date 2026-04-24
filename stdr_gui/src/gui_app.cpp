@@ -1,5 +1,8 @@
 #include <stdr_gui/gui_app.hpp>
 
+#include <stdr_gui/plot/plot_panel.hpp>
+#include <stdr_gui/plot/registry.hpp>
+
 #include <imgui.h>
 #include <imgui_impl_glfw.h>
 #include <imgui_impl_opengl3.h>
@@ -90,6 +93,13 @@ int GuiApp::run()
       first_frame_ = false;
     }
 
+    // Construct the PlotPanel lazily on the first frame so the ImGui context
+    // exists before any plotter's on_init is called.
+    if (!plot_panel_)
+    {
+      plot_panel_ = std::make_unique<stdr::plot::PlotPanel>(*backend_);
+    }
+
     const std::shared_ptr<const SimulationSnapshot> snapshot = backend_->get_snapshot();
     if (snapshot)
     {
@@ -118,7 +128,15 @@ void GuiApp::request_shutdown()
 
 void GuiApp::render_frame(const SimulationSnapshot& snapshot)
 {
-  toolbar_.render(*backend_, file_dialog_, snapshot);
+  // Pass the plot panel's menu items into the toolbar's "View > Plots" submenu.
+  // Capturing plot_panel_ by pointer is safe because both live in GuiApp.
+  const std::function<void()> plots_menu = [this]() {
+    if (plot_panel_)
+    {
+      plot_panel_->render_menu_items();
+    }
+  };
+  toolbar_.render(*backend_, file_dialog_, snapshot, plots_menu);
 
   // Use the viewport work area so panel layout adapts to the menu bar height
   // at any DPI, without querying the GLFW window size in logical coordinates.
@@ -167,12 +185,54 @@ void GuiApp::render_frame(const SimulationSnapshot& snapshot)
 
   // Render sensor windows, removing any that have been closed.
   std::erase_if(sensor_windows_, [&snapshot](const std::unique_ptr<SensorWindow>& w) { return !w->render(snapshot); });
+
+  render_plot_panel();
 }
 
 void GuiApp::setup_docking_layout()
 {
-  // Docking is not available in this imgui build. This method is a no-op
-  // placeholder for when it becomes available.
+  // ImGui docking requires building with IMGUI_HAS_DOCK (the "docking" branch
+  // of Dear ImGui).  This build uses the standard release branch, which does not
+  // include docking support, so this function is intentionally a no-op.
+  //
+  // When docking becomes available, this is where we would call
+  // ImGui::DockBuilderAddNode / ImGui::DockBuilderSplitNode to position the
+  // plot panel to the right of the map view as a proper dock node, then call
+  // ImGui::DockBuilderFinish.  Until then, render_plot_panel() positions the
+  // panel as a floating window whose last position is persisted by imgui.ini.
+}
+
+void GuiApp::render_plot_panel()
+{
+  if (!plot_panel_)
+  {
+    return;
+  }
+
+  // Position the plot panel as a resizable floating window to the right of
+  // the main content area.  imgui.ini persists user-repositioned window state
+  // across sessions automatically, so no additional persistence is needed.
+  const ImGuiViewport* viewport = ImGui::GetMainViewport();
+  const float control_h = stdr_gui::control_bar_height();
+  const float status_h = stdr_gui::status_bar_height();
+  const float content_y = viewport->WorkPos.y + control_h;
+  const float content_h = viewport->WorkSize.y - control_h - status_h;
+
+  // Default position: right edge of the viewport, occupying the right quarter.
+  // The user can drag and resize; ImGui saves this in imgui.ini.
+  constexpr float kDefaultWidthFraction = 0.25f;
+  const float default_w = viewport->WorkSize.x * kDefaultWidthFraction;
+  const float default_x = viewport->WorkPos.x + viewport->WorkSize.x - default_w;
+
+  ImGui::SetNextWindowPos(ImVec2(default_x, content_y), ImGuiCond_FirstUseEver);
+  ImGui::SetNextWindowSize(ImVec2(default_w, content_h * 0.5f), ImGuiCond_FirstUseEver);
+
+  constexpr ImGuiWindowFlags kPlotFlags = ImGuiWindowFlags_NoCollapse;
+  if (ImGui::Begin("Plots", nullptr, kPlotFlags))
+  {
+    plot_panel_->render();
+  }
+  ImGui::End();
 }
 
 void GuiApp::handle_file_dialog_result()
