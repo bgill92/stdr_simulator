@@ -531,4 +531,15 @@ double StandaloneBackend::sim_time() const
   return elapsed_time_;
 }
 
+std::vector<stdr_simulation::Point2D> StandaloneBackend::footprint(const std::string& robot_id) const
+{
+  const std::lock_guard<std::mutex> lock(sim_mutex_);
+  const stdr_simulation::world::RobotState* robot = world_model_.get_robot(robot_id);
+  if (robot == nullptr)
+  {
+    return {};
+  }
+  return robot->config.footprint.points;
+}
+
 }  // namespace stdr_standalone

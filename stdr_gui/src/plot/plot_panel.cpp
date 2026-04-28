@@ -44,17 +44,64 @@ PlotPanel::PlotPanel(stdr_gui::SimulatorBackend& backend, PlotterRegistry& regis
 
 void PlotPanel::pause_slot(std::size_t index)
 {
-  if (index < slots_.size())
+  if (index >= slots_.size())
   {
-    slots_[index].paused = true;
+    return;
   }
+  Slot& slot = slots_[index];
+  // Idempotent — only fire the hook on the false→true transition.
+  if (slot.paused)
+  {
+    return;
+  }
+
+  std::unique_ptr<SimView> view = make_backend_sim_view(backend_, slot.laser_cursors, slot.sonar_cursors);
+  try
+  {
+    slot.plotter->on_pause(*view);
+  }
+  catch (const std::exception& e)
+  {
+    slot.error = e.what();
+  }
+  catch (...)
+  {
+    slot.error = "Unknown exception in on_pause.";
+  }
+
+  slot.paused = true;
 }
 
 void PlotPanel::unpause_slot(std::size_t index)
 {
-  if (index < slots_.size())
+  if (index >= slots_.size())
   {
-    slots_[index].paused = false;
+    return;
+  }
+  Slot& slot = slots_[index];
+  // Idempotent — only fire the hook on the true→false transition.
+  if (!slot.paused)
+  {
+    return;
+  }
+
+  // Clear the paused flag first so the plotter is considered active before
+  // on_resume fires (on_resume may issue commands that the next pump_sample
+  // should process).
+  slot.paused = false;
+
+  std::unique_ptr<SimView> view = make_backend_sim_view(backend_, slot.laser_cursors, slot.sonar_cursors);
+  try
+  {
+    slot.plotter->on_resume(*view);
+  }
+  catch (const std::exception& e)
+  {
+    slot.error = e.what();
+  }
+  catch (...)
+  {
+    slot.error = "Unknown exception in on_resume.";
   }
 }
 
@@ -65,6 +112,10 @@ void PlotPanel::remove_slot(std::size_t index)
     return;
   }
   Slot& slot = slots_[index];
+
+  // on_pause is intentionally NOT called here: the slot is being torn down
+  // entirely, not suspended.  Calling on_pause on a plotter that is about to
+  // be destroyed would mislead it into thinking it can resume later.
 
   // Reset all accumulated state before reinstantiating so the new plotter
   // starts from a clean baseline rather than inheriting stale cursors/errors.
@@ -152,72 +203,53 @@ void PlotPanel::pump_sample()
 void PlotPanel::render()
 {
   // Drive the sample phase headlessly first — no ImGui calls, safe to test.
+  // Sampling must run for all non-paused slots regardless of which tab is
+  // active so plotters accumulate historical data even when not visible.
   pump_sample();
 
-  // Thin ImGui shell: iterate slots and emit one child window per active plotter.
-  for (std::size_t i = 0; i < slots_.size(); ++i)
+  if (ImGui::BeginTabBar("##plot_tabs"))
   {
-    Slot& slot = slots_[i];
-
-    // Skip paused slots entirely.
-    if (slot.paused)
+    for (std::size_t i = 0; i < slots_.size(); ++i)
     {
-      continue;
-    }
-
-    // Slots with a recorded error display an inline error child instead of the
-    // plot so the user can read the message without opening the menu.
-    if (!slot.error.empty())
-    {
-      ImGui::PushID(static_cast<int>(i));
-      ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.3f, 0.0f, 0.0f, 1.0f));
-      ImGui::BeginChild("##plot_error", ImVec2(-1.0f, 60.0f), true);
-      ImGui::TextColored(ImVec4(1.0f, 0.3f, 0.3f, 1.0f), "[ERROR] %s: %s", slot.name.c_str(), slot.error.c_str());
-      ImGui::EndChild();
-      ImGui::PopStyleColor();
-      ImGui::PopID();
-      continue;
-    }
-
-    // --- Render phase (inside its own child so plotters scroll independently) ---
-
-    // Reserve a fixed-height child so multiple plotters stack vertically
-    // without each one consuming the full panel height.  200 px is a
-    // reasonable default; users can scroll the outer panel for more.
-    constexpr float kChildHeight = 200.0f;
-
-    ImGui::PushID(static_cast<int>(i));
-    ImGui::BeginChild("##plot_child", ImVec2(-1.0f, kChildHeight), false);
-
-    // Budget-overrun indicator — yellow dot before the plotter name.
-    if (slot.overran_budget)
-    {
-      ImGui::TextColored(ImVec4(1.0f, 0.9f, 0.0f, 1.0f), "(!) ");
-      if (ImGui::IsItemHovered())
+      Slot& slot = slots_[i];
+      if (slot.paused)
       {
-        ImGui::SetTooltip("on_sample exceeded the 5 ms budget.");
+        continue;
       }
-      ImGui::SameLine();
-    }
 
-    ImGui::TextUnformatted(slot.name.c_str());
-    ImGui::Separator();
-
-    try
-    {
-      slot.plotter->on_render(PlotView{ slot.sink });
+      ImGui::PushID(static_cast<int>(i));
+      if (ImGui::BeginTabItem(slot.name.c_str()))
+      {
+        if (!slot.error.empty())
+        {
+          ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.3f, 0.3f, 1.0f));
+          ImGui::TextWrapped("[ERROR] %s", slot.error.c_str());
+          ImGui::PopStyleColor();
+        }
+        else
+        {
+          if (slot.overran_budget)
+          {
+            ImGui::TextColored(ImVec4(1.0f, 0.9f, 0.0f, 1.0f), "(!) on_sample exceeded 5 ms budget.");
+          }
+          try
+          {
+            slot.plotter->on_render(PlotView{ slot.sink });
+          }
+          catch (const std::exception& e)
+          {
+            slot.error = e.what();
+          }
+          catch (...)
+          {
+            slot.error = "Unknown exception in on_render.";
+          }
+        }
+        ImGui::EndTabItem();
+      }
+      ImGui::PopID();
     }
-    catch (const std::exception& e)
-    {
-      slot.error = e.what();
-    }
-    catch (...)
-    {
-      slot.error = "Unknown exception in on_render.";
-    }
-
-    ImGui::EndChild();
-    ImGui::PopID();
+    ImGui::EndTabBar();
   }
 }
 
@@ -230,10 +262,18 @@ void PlotPanel::render_menu_items()
     // Unique ImGui ID scope per slot so controls do not alias.
     ImGui::PushID(static_cast<int>(i));
 
-    bool paused = slot.paused;
+    const bool was_paused = slot.paused;
+    bool paused = was_paused;
     if (ImGui::Checkbox("##pause", &paused))
     {
-      slot.paused = paused;
+      if (paused && !was_paused)
+      {
+        pause_slot(i);
+      }
+      else if (!paused && was_paused)
+      {
+        unpause_slot(i);
+      }
     }
     if (ImGui::IsItemHovered())
     {

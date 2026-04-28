@@ -199,6 +199,56 @@ public:
 };
 
 // ---------------------------------------------------------------------------
+// LifecyclePlotter: counts on_pause / on_resume calls for hook tests.
+// ---------------------------------------------------------------------------
+
+class LifecyclePlotter : public Plotter
+{
+public:
+  [[nodiscard]] std::string_view name() const override
+  {
+    return "LifecyclePlotter";
+  }
+
+  void on_pause(SimView& /*sim*/) override
+  {
+    ++pause_count;
+  }
+
+  void on_resume(SimView& /*sim*/) override
+  {
+    ++resume_count;
+  }
+
+  void on_sample(SimView& /*sim*/, PlotSink& /*out*/) override
+  {
+    ++sample_count;
+  }
+
+  void on_render(const PlotView& /*data*/) override
+  {
+  }
+
+  // Shared across all instances via statics so tests can read them after
+  // the panel rebuilds the plotter on remove.
+  static int pause_count;
+  static int resume_count;
+  static int sample_count;
+};
+
+int LifecyclePlotter::pause_count = 0;
+int LifecyclePlotter::resume_count = 0;
+int LifecyclePlotter::sample_count = 0;
+
+// Reset lifecycle counters between tests.
+void reset_lifecycle_state()
+{
+  LifecyclePlotter::pause_count = 0;
+  LifecyclePlotter::resume_count = 0;
+  LifecyclePlotter::sample_count = 0;
+}
+
+// ---------------------------------------------------------------------------
 // Helper: build a local registry with a single plotter type.
 // ---------------------------------------------------------------------------
 
@@ -446,6 +496,89 @@ TEST(PlotPanel, EmptyRegistryConstructsSuccessfully)
   PlotPanel panel(backend, reg);
 
   EXPECT_THAT(panel.slot_status(), ::testing::IsEmpty());
+}
+
+// ---------------------------------------------------------------------------
+// on_pause / on_resume lifecycle hook tests
+// ---------------------------------------------------------------------------
+
+// Fixture resets lifecycle counters in SetUp so each test starts clean without
+// requiring manual reset_lifecycle_state() calls in the test body.
+class PlotPanelLifecycleHookTest : public ::testing::Test
+{
+protected:
+  void SetUp() override
+  {
+    reset_lifecycle_state();
+  }
+};
+
+TEST_F(PlotPanelLifecycleHookTest, PauseSlotFiresOnPauseHook)
+{
+  reset_fake_state();
+  stdr_gui::StubBackend backend;
+  PlotterRegistry reg = make_registry<LifecyclePlotter>();
+  PlotPanel panel(backend, reg);
+
+  // pause_slot must call on_pause exactly once.
+  panel.pause_slot(0);
+  EXPECT_EQ(LifecyclePlotter::pause_count, 1);
+  ASSERT_THAT(panel.slot_status(), ::testing::SizeIs(1));
+  EXPECT_TRUE(panel.slot_status()[0].paused);
+
+  // pump_sample while paused must not call on_sample.
+  const int sample_before = LifecyclePlotter::sample_count;
+  panel.pump_sample();
+  EXPECT_EQ(LifecyclePlotter::sample_count, sample_before);
+}
+
+TEST_F(PlotPanelLifecycleHookTest, UnpauseSlotFiresOnResumeHook)
+{
+  reset_fake_state();
+  stdr_gui::StubBackend backend;
+  PlotterRegistry reg = make_registry<LifecyclePlotter>();
+  PlotPanel panel(backend, reg);
+
+  panel.pause_slot(0);
+  panel.unpause_slot(0);
+
+  EXPECT_EQ(LifecyclePlotter::resume_count, 1);
+  ASSERT_THAT(panel.slot_status(), ::testing::SizeIs(1));
+  EXPECT_FALSE(panel.slot_status()[0].paused);
+
+  // pump_sample after unpause must call on_sample again.
+  const int sample_before = LifecyclePlotter::sample_count;
+  panel.pump_sample();
+  EXPECT_EQ(LifecyclePlotter::sample_count, sample_before + 1);
+}
+
+TEST_F(PlotPanelLifecycleHookTest, PauseSlotIsIdempotent)
+{
+  reset_fake_state();
+  stdr_gui::StubBackend backend;
+  PlotterRegistry reg = make_registry<LifecyclePlotter>();
+  PlotPanel panel(backend, reg);
+
+  // Calling pause_slot twice should only fire on_pause once.
+  panel.pause_slot(0);
+  panel.pause_slot(0);
+  EXPECT_EQ(LifecyclePlotter::pause_count, 1);
+  ASSERT_THAT(panel.slot_status(), ::testing::SizeIs(1));
+  EXPECT_TRUE(panel.slot_status()[0].paused);
+}
+
+TEST_F(PlotPanelLifecycleHookTest, UnpauseSlotIsIdempotent)
+{
+  reset_fake_state();
+  stdr_gui::StubBackend backend;
+  PlotterRegistry reg = make_registry<LifecyclePlotter>();
+  PlotPanel panel(backend, reg);
+
+  // Unpausing an already-unpaused slot must not fire on_resume.
+  panel.unpause_slot(0);
+  EXPECT_EQ(LifecyclePlotter::resume_count, 0);
+  ASSERT_THAT(panel.slot_status(), ::testing::SizeIs(1));
+  EXPECT_FALSE(panel.slot_status()[0].paused);
 }
 
 }  // namespace

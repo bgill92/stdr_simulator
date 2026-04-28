@@ -93,6 +93,11 @@ public:
     return c.value_or(false);
   }
 
+  [[nodiscard]] std::vector<stdr_simulation::Point2D> footprint(const RobotId& robot_id) const override
+  {
+    return backend_.footprint(robot_id);
+  }
+
   [[nodiscard]] double sim_time() const override
   {
     return backend_.sim_time();

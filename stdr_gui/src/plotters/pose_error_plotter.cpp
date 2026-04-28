@@ -10,6 +10,8 @@
 #include <stdr_gui/plot/registry.hpp>
 #include <stdr_gui/plot/sim_introspection.hpp>
 
+#include <implot.h>
+
 #include <cmath>
 #include <string_view>
 
@@ -32,19 +34,40 @@ public:
   void on_init(const stdr::plot::SimIntrospection& sim) override
   {
     // Cache the first robot ID at init time so on_sample does not re-query
-    // the roster on every frame.  robot_ids() returns owning strings, so
-    // storing it as a member is safe across frames.
+    // the roster on every frame.  If no robots exist yet, on_sample performs
+    // the same lookup on its first call once one is present.  robot_ids()
+    // returns owning strings, so storing it as a member is safe across frames.
     if (sim.num_robots() > 0)
     {
       robot_ = sim.robot_ids()[0];
     }
   }
 
+  void on_pause(stdr::plot::SimView& sim) override
+  {
+    // Stop the robot so the simulator does not keep applying the last latched
+    // velocity command while the plotter is paused.
+    if (!robot_.empty())
+    {
+      sim.cmd_velocity(robot_, 0.0, 0.0);
+    }
+  }
+
   void on_sample(stdr::plot::SimView& sim, stdr::plot::PlotSink& out) override
   {
+    // on_init may fire before any robot is spawned (PlotPanel is constructed
+    // lazily on the first GUI frame in gui_app.cpp), so capture the ID here on
+    // the first sample where one is present.
     if (robot_.empty())
     {
-      return;
+      if (sim.num_robots() > 0)
+      {
+        robot_ = sim.robot_ids()[0];
+      }
+      else
+      {
+        return;
+      }
     }
 
     // Command the robot to drive in a circle.
@@ -66,16 +89,24 @@ public:
 
   void on_render(const stdr::plot::PlotView& data) override
   {
-    // ImPlot calls go here.  The spans below are valid for the duration of
-    // this on_render call (the framework guarantees no on_sample writes
-    // concurrently with on_render on the same plotter).
     const std::span<const stdr::plot::TimedScalar> xy = data.scalar("err_xy");
     const std::span<const stdr::plot::TimedScalar> th = data.scalar("err_theta");
 
-    // When ImPlot is not present in the test binary, we simply don't call it.
-    // In the full GUI build, these calls render the line plots.
-    (void)xy;
-    (void)th;
+    if (ImPlot::BeginPlot("##pose_error", ImVec2(-1.0f, -1.0f)))
+    {
+      ImPlot::SetupAxes("sim time (s)", "error");
+      if (!xy.empty())
+      {
+        ImPlot::PlotLine("|gt - dead| (m)", &xy[0].t, &xy[0].v, static_cast<int>(xy.size()), 0, 0,
+                         static_cast<int>(sizeof(stdr::plot::TimedScalar)));
+      }
+      if (!th.empty())
+      {
+        ImPlot::PlotLine("err theta (rad)", &th[0].t, &th[0].v, static_cast<int>(th.size()), 0, 0,
+                         static_cast<int>(sizeof(stdr::plot::TimedScalar)));
+      }
+      ImPlot::EndPlot();
+    }
   }
 
 private:

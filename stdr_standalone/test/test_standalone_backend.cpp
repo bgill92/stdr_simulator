@@ -40,6 +40,13 @@ std::string laser_robot_path()
   return std::string(STDR_TEST_DIR) + "/test_laser_robot.yaml";
 }
 
+// test_polygon_robot.yaml is a minimal inline robot config with a square
+// polygon footprint (four 0.2 m corners) and no sensors.
+std::string polygon_robot_path()
+{
+  return std::string(STDR_TEST_DIR) + "/test_polygon_robot.yaml";
+}
+
 // --- Error cases first ---
 
 TEST(StandaloneBackend, LoadMapFailsOnMissingFile)
@@ -473,6 +480,25 @@ TEST(StandaloneBackendIntrospection, LatestSonarNulloptForWrongSensorId)
   backend.pause();
 
   EXPECT_EQ(backend.latest_sonar(name, "no_such_sonar"), std::nullopt);
+}
+
+// --- Introspection: footprint ---
+
+TEST(StandaloneBackendIntrospection, FootprintEmptyForMissingRobot)
+{
+  StandaloneBackend backend;
+  EXPECT_THAT(backend.footprint("does_not_exist"), IsEmpty());
+}
+
+TEST(StandaloneBackendIntrospection, PolygonFootprintReturnsKnownVertices)
+{
+  StandaloneBackend backend;
+  const std::string name = backend.spawn_robot(polygon_robot_path(), { 0.0, 0.0, 0.0 }).value();
+
+  const std::vector<stdr_simulation::Point2D> verts = backend.footprint(name);
+  ASSERT_THAT(verts, SizeIs(4));
+  EXPECT_DOUBLE_EQ(verts[0].x, -0.2);
+  EXPECT_DOUBLE_EQ(verts[0].y, -0.2);
 }
 
 // --- Introspection: multi-robot ---

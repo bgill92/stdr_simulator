@@ -65,6 +65,10 @@ public:
   {
     return false;
   }
+  [[nodiscard]] std::vector<stdr_simulation::Point2D> footprint(const RobotId& /*robot_id*/) const override
+  {
+    return {};
+  }
   [[nodiscard]] double sim_time() const override
   {
     return 0.0;

@@ -230,6 +230,16 @@ public:
     return std::nullopt;
   }
 
+  /** @brief Return the robot's footprint polygon vertices in robot-local frame.
+   *
+   *  Returns an empty vector if the robot is not found or has no footprint.
+   *  @note Default is a no-op fallback for backends that have not yet wired
+   *        footprint introspection (e.g. Ros2Backend). */
+  [[nodiscard]] virtual std::vector<stdr_simulation::Point2D> footprint(const std::string& /*robot_id*/) const
+  {
+    return {};
+  }
+
   /** @brief Return the elapsed simulation time in seconds.
    *  @return 0.0 if the backend has not yet wired this method. */
   [[nodiscard]] virtual double sim_time() const

@@ -257,8 +257,8 @@ private:
  *  owned by the `SimView` instance, which is destroyed when `on_sample`
  *  returns.  Callers that need the data to outlive the call must copy it.
  *
- *  @warning NOT thread-safe.  Must only be used from `on_sample`, which
- *           runs on the GUI thread. */
+ *  @warning NOT thread-safe.  Must only be used from `on_sample`,
+ *           `on_pause`, or `on_resume` — all of which run on the GUI thread. */
 class SimView
 {
 public:
@@ -285,6 +285,10 @@ public:
   /** Return whether @p robot_id collided on the most recent step.
    *  Returns false if @p robot_id is not found. */
   [[nodiscard]] virtual bool collided(const RobotId& robot_id) const = 0;
+
+  /** Return the robot's footprint polygon vertices in robot-local frame.
+   *  Returns an empty vector if the robot is not found or has no footprint. */
+  [[nodiscard]] virtual std::vector<stdr_simulation::Point2D> footprint(const RobotId& robot_id) const = 0;
 
   /** Return the elapsed simulation time in seconds. */
   [[nodiscard]] virtual double sim_time() const = 0;
@@ -400,6 +404,29 @@ public:
   /** Called once after the backend is ready.  Use to cache robot/sensor IDs
    *  so `on_sample` does not query the roster on every call. */
   virtual void on_init(const SimIntrospection& /*sim*/)
+  {
+  }
+
+  /** Called once when the plotter is paused (false → true transition).
+   *  Plotters that issue commands should send a final stop here so the
+   *  simulator does not keep applying the last latched command.
+   *  Default: no-op.
+   *
+   *  The `SimView` passed here shares the slot's live sensor cursors; calling
+   *  `new_laser_scans()` or `new_sonar_readings()` inside this hook will drain
+   *  events that would otherwise be visible on the next `on_sample` call. */
+  virtual void on_pause(SimView& /*sim*/)
+  {
+  }
+
+  /** Called once when the plotter is unpaused (true → false transition).
+   *  Symmetric counterpart to on_pause; plotters can use it to re-publish
+   *  any state that was cleared on pause.  Default: no-op.
+   *
+   *  The `SimView` passed here shares the slot's live sensor cursors; calling
+   *  `new_laser_scans()` or `new_sonar_readings()` inside this hook will drain
+   *  events that would otherwise be visible on the next `on_sample` call. */
+  virtual void on_resume(SimView& /*sim*/)
   {
   }
 
