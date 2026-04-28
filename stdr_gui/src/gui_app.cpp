@@ -19,10 +19,10 @@
 
 namespace
 {
-// The right column occupies this fraction of the total viewport width.
-constexpr float kRightPanelFraction = 0.25f;
-// Fixed height reserved for the teleop panel when a robot is selected.
-constexpr float kTeleopPanelHeight = 220.0f;
+// Left half vs right half of the total viewport width.
+constexpr float kHorizontalSplitFraction = 0.5f;
+// Top row height as a fraction of the content area height.
+constexpr float kTopRowFraction = 0.7f;
 }  // namespace
 
 namespace stdr_gui
@@ -149,8 +149,11 @@ void GuiApp::render_frame(const SimulationSnapshot& snapshot)
   const float content_h = viewport->WorkSize.y - control_h - status_h;
   const float total_w = viewport->WorkSize.x;
 
-  const float left_w = total_w * (1.0f - kRightPanelFraction);
-  const float right_w = total_w * kRightPanelFraction;
+  const float left_w = total_w * kHorizontalSplitFraction;
+  const float right_w = total_w - left_w;
+  const float top_h = content_h * kTopRowFraction;
+  const float bottom_h = content_h - top_h;
+  const float bottom_y = content_y + top_h;
 
   // Build the set of robots with sensor visualization enabled.
   std::unordered_set<std::string> sensors_visible;
@@ -163,19 +166,14 @@ void GuiApp::render_frame(const SimulationSnapshot& snapshot)
   }
 
   ImGui::SetNextWindowPos(ImVec2(0.0f, content_y), ImGuiCond_Always);
-  ImGui::SetNextWindowSize(ImVec2(left_w, content_h), ImGuiCond_Always);
+  ImGui::SetNextWindowSize(ImVec2(left_w, top_h), ImGuiCond_Always);
   // Propagate the RobotInfoPanel selection into MapPanel so the velocity
   // overlay always reflects the same robot that teleop is driving.
   map_panel_.set_teleop_target(robot_info_panel_.selected_robot());
   map_panel_.render(snapshot, *backend_, sensors_visible);
 
-  // Shrink the Robot Info panel to make room for the pinned Teleop panel below
-  // it whenever a robot is selected.
-  const bool teleop_visible = !robot_info_panel_.selected_robot().empty();
-  const float robot_info_h = teleop_visible ? content_h - kTeleopPanelHeight : content_h;
-
-  ImGui::SetNextWindowPos(ImVec2(left_w, content_y), ImGuiCond_Always);
-  ImGui::SetNextWindowSize(ImVec2(right_w, robot_info_h), ImGuiCond_Always);
+  ImGui::SetNextWindowPos(ImVec2(0.0f, bottom_y), ImGuiCond_Always);
+  ImGui::SetNextWindowSize(ImVec2(left_w, bottom_h), ImGuiCond_Always);
   robot_info_panel_.render(snapshot, *backend_, sensor_windows_);
 
   handle_file_dialog_result();
@@ -209,25 +207,21 @@ void GuiApp::render_plot_panel()
     return;
   }
 
-  // Position the plot panel as a resizable floating window to the right of
-  // the main content area.  imgui.ini persists user-repositioned window state
-  // across sessions automatically, so no additional persistence is needed.
   const ImGuiViewport* viewport = ImGui::GetMainViewport();
   const float control_h = stdr_gui::control_bar_height();
   const float status_h = stdr_gui::status_bar_height();
   const float content_y = viewport->WorkPos.y + control_h;
   const float content_h = viewport->WorkSize.y - control_h - status_h;
+  const float total_w = viewport->WorkSize.x;
+  const float left_w = total_w * kHorizontalSplitFraction;
+  const float right_w = total_w - left_w;
+  const float top_h = content_h * kTopRowFraction;
 
-  // Default position: right edge of the viewport, occupying the right quarter.
-  // The user can drag and resize; ImGui saves this in imgui.ini.
-  constexpr float kDefaultWidthFraction = 0.25f;
-  const float default_w = viewport->WorkSize.x * kDefaultWidthFraction;
-  const float default_x = viewport->WorkPos.x + viewport->WorkSize.x - default_w;
+  ImGui::SetNextWindowPos(ImVec2(left_w, content_y), ImGuiCond_Always);
+  ImGui::SetNextWindowSize(ImVec2(right_w, top_h), ImGuiCond_Always);
 
-  ImGui::SetNextWindowPos(ImVec2(default_x, content_y), ImGuiCond_FirstUseEver);
-  ImGui::SetNextWindowSize(ImVec2(default_w, content_h * 0.5f), ImGuiCond_FirstUseEver);
-
-  constexpr ImGuiWindowFlags kPlotFlags = ImGuiWindowFlags_NoCollapse;
+  constexpr ImGuiWindowFlags kPlotFlags =
+      ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize;
   if (ImGui::Begin("Plots", nullptr, kPlotFlags))
   {
     plot_panel_->render();
@@ -318,48 +312,51 @@ void GuiApp::render_teleop_window()
   const std::string& selected_name = robot_info_panel_.selected_robot();
   if (selected_name.empty())
   {
+    // Bottom-right cell is intentionally left blank when no robot is selected.
     return;
   }
 
   const ImGuiViewport* viewport = ImGui::GetMainViewport();
-  const float total_w = viewport->WorkSize.x;
-  const float right_w = total_w * kRightPanelFraction;
-  const float left_w = total_w - right_w;
+  const float control_h = stdr_gui::control_bar_height();
   const float status_h = stdr_gui::status_bar_height();
+  const float content_y = viewport->WorkPos.y + control_h;
+  const float content_h = viewport->WorkSize.y - control_h - status_h;
+  const float total_w = viewport->WorkSize.x;
+  const float left_w = total_w * kHorizontalSplitFraction;
+  const float right_w = total_w - left_w;
+  const float top_h = content_h * kTopRowFraction;
+  const float bottom_h = content_h - top_h;
+  const float bottom_y = content_y + top_h;
 
-  // Anchor directly from the viewport bottom so the teleop panel always sits
-  // just above the status bar, regardless of how tall the control bar is.
-  const float bar_bottom_y = viewport->WorkPos.y + viewport->WorkSize.y - status_h;
-
-  // Pin the teleop panel to the bottom of the right column, directly below
-  // the Robot Info panel, so users always know where to find it.
-  ImGui::SetNextWindowPos(ImVec2(left_w, bar_bottom_y - kTeleopPanelHeight), ImGuiCond_Always);
-  ImGui::SetNextWindowSize(ImVec2(right_w, kTeleopPanelHeight), ImGuiCond_Always);
+  // Fixed bottom-right cell in the 4-cell layout.
+  ImGui::SetNextWindowPos(ImVec2(left_w, bottom_y), ImGuiCond_Always);
+  ImGui::SetNextWindowSize(ImVec2(right_w, bottom_h), ImGuiCond_Always);
 
   constexpr ImGuiWindowFlags kTeleopFlags =
       ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoCollapse;
-  ImGui::Begin("Teleop", nullptr, kTeleopFlags);
+  if (ImGui::Begin("Teleop", nullptr, kTeleopFlags))
+  {
+    ImGui::Text("Driving: %s", selected_name.c_str());
+    ImGui::Separator();
 
-  ImGui::Text("Driving: %s", selected_name.c_str());
-  ImGui::Separator();
+    // Use SliderScalar to bind directly to the double members without a narrowing
+    // conversion — TeleopSpeeds stores doubles, not floats.
+    constexpr double kLinearMin = 0.05;
+    constexpr double kLinearMax = 3.0;
+    ImGui::SliderScalar("Linear (m/s)", ImGuiDataType_Double, &teleop_.speeds().linear, &kLinearMin, &kLinearMax,
+                        "%.2f");
 
-  // Use SliderScalar to bind directly to the double members without a narrowing
-  // conversion — TeleopSpeeds stores doubles, not floats.
-  constexpr double kLinearMin = 0.05;
-  constexpr double kLinearMax = 3.0;
-  ImGui::SliderScalar("Linear (m/s)", ImGuiDataType_Double, &teleop_.speeds().linear, &kLinearMin, &kLinearMax, "%.2f");
+    constexpr double kAngularMin = 0.1;
+    constexpr double kAngularMax = 4.0;
+    ImGui::SliderScalar("Angular (rad/s)", ImGuiDataType_Double, &teleop_.speeds().angular, &kAngularMin, &kAngularMax,
+                        "%.2f");
 
-  constexpr double kAngularMin = 0.1;
-  constexpr double kAngularMax = 4.0;
-  ImGui::SliderScalar("Angular (rad/s)", ImGuiDataType_Double, &teleop_.speeds().angular, &kAngularMin, &kAngularMax,
-                      "%.2f");
+    ImGui::Separator();
 
-  ImGui::Separator();
-
-  ImGui::TextDisabled("Keys: W/S forward/back  A/D strafe (omni)");
-  ImGui::TextDisabled("      Q/E turn left/right");
-  ImGui::TextDisabled("      Arrow keys also supported");
-
+    ImGui::TextDisabled("Keys: W/S forward/back  A/D strafe (omni)");
+    ImGui::TextDisabled("      Q/E turn left/right");
+    ImGui::TextDisabled("      Arrow keys also supported");
+  }
   ImGui::End();
 }
 
