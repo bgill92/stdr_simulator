@@ -62,6 +62,7 @@ void SimulationEngine::step(double dt)
     }
 
     // --- Collision check and pose commit ---
+    bool robot_collided = false;
     if (map != nullptr)
     {
       const bool collides = collision_checker_.check_path_collision(new_pose, robot.pose, robot.config.footprint, *map);
@@ -69,7 +70,11 @@ void SimulationEngine::step(double dt)
       {
         world_.set_robot_pose(robot.name, new_pose);
       }
-      // On collision, keep the old pose — do not call set_robot_pose.
+      else
+      {
+        // On collision, keep the old pose — do not call set_robot_pose.
+        robot_collided = true;
+      }
     }
     else
     {
@@ -87,6 +92,7 @@ void SimulationEngine::step(double dt)
     }
 
     RobotSensorData data{};
+    data.collided = robot_collided;
 
     // Laser and sonar require a map — skip if none has been loaded.
     if (map != nullptr)

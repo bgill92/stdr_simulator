@@ -59,6 +59,13 @@ void MapPanel::render(const SimulationSnapshot& snapshot, SimulatorBackend& back
 {
   ImGui::Begin("Map", nullptr, ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoCollapse);
 
+  // Capture content-region origin (just below the title bar) before any widget
+  // consumes cursor space.  Rendering helpers use this instead of GetWindowPos()
+  // so that world-to-screen translations are anchored to the drawable area, not
+  // the top of the title bar.
+  content_origin_ = ImGui::GetCursorScreenPos();
+  content_size_ = ImGui::GetContentRegionAvail();
+
   const stdr_simulation::OccupancyGrid& grid = snapshot.map;
   if (grid.width > 0 && grid.height > 0)
   {
@@ -141,10 +148,11 @@ void MapPanel::handle_input(SimulatorBackend& backend)
     return;
   }
 
-  const ImVec2 window_pos = ImGui::GetWindowPos();
   const ImVec2 mouse_pos = ImGui::GetMousePos();
-  const float mx = mouse_pos.x - window_pos.x;
-  const float my = mouse_pos.y - window_pos.y;
+  // Subtract content_origin_ (not window pos) so the zoom pivot is in transform-space
+  // coordinates, which are relative to the drawable content area below the title bar.
+  const float mx = mouse_pos.x - content_origin_.x;
+  const float my = mouse_pos.y - content_origin_.y;
 
   if (!locked_view_)
   {
@@ -192,7 +200,6 @@ void MapPanel::render_map_image()
   }
 
   ImDrawList* draw_list = ImGui::GetWindowDrawList();
-  const ImVec2 window_pos = ImGui::GetWindowPos();
 
   // Map corners in world coordinates: the occupancy grid spans from
   // (origin_x, origin_y) to (origin_x + width*resolution, origin_y + height*resolution).
@@ -205,8 +212,10 @@ void MapPanel::render_map_image()
   // Screen bottom-right: world bottom-right corner.
   const ScreenPoint br = transform_.world_to_screen(world_right, cached_origin_y_);
 
-  const ImVec2 p_min{ window_pos.x + tl.x, window_pos.y + tl.y };
-  const ImVec2 p_max{ window_pos.x + br.x, window_pos.y + br.y };
+  // Anchor to content_origin_ (below title bar) rather than GetWindowPos() so
+  // the map is not shifted up into the title bar.
+  const ImVec2 p_min{ content_origin_.x + tl.x, content_origin_.y + tl.y };
+  const ImVec2 p_max{ content_origin_.x + br.x, content_origin_.y + br.y };
 
   // OpenGL texture coordinates: (0,0)=bottom-left, (1,1)=top-right.
   // ImGui screen: y increases downward, ROS map: y increases upward, so we
@@ -219,7 +228,6 @@ void MapPanel::render_map_image()
 void MapPanel::render_robots(const SimulationSnapshot& snapshot)
 {
   ImDrawList* draw_list = ImGui::GetWindowDrawList();
-  const ImVec2 window_pos = ImGui::GetWindowPos();
   const ImVec2 mouse_pos = ImGui::GetMousePos();
 
   float best_dist = std::numeric_limits<float>::max();
@@ -227,7 +235,7 @@ void MapPanel::render_robots(const SimulationSnapshot& snapshot)
   for (const stdr_simulation::world::RobotState& robot : snapshot.robots)
   {
     const ScreenPoint sp = transform_.world_to_screen(robot.pose.x, robot.pose.y);
-    const ImVec2 center{ window_pos.x + sp.x, window_pos.y + sp.y };
+    const ImVec2 center{ content_origin_.x + sp.x, content_origin_.y + sp.y };
 
     // Determine display radius: use config radius if available, else default.
     const float world_radius =
@@ -261,7 +269,7 @@ void MapPanel::render_robots(const SimulationSnapshot& snapshot)
         const double wy = robot.pose.y + pt.x * sin_theta + pt.y * cos_theta;
 
         const ScreenPoint vsp = transform_.world_to_screen(wx, wy);
-        const ImVec2 vertex{ window_pos.x + vsp.x, window_pos.y + vsp.y };
+        const ImVec2 vertex{ content_origin_.x + vsp.x, content_origin_.y + vsp.y };
         poly_screen.push_back(vertex);
       }
 
@@ -343,7 +351,6 @@ void MapPanel::render_sensor_overlays(const SimulationSnapshot& snapshot,
   }
 
   ImDrawList* draw_list = ImGui::GetWindowDrawList();
-  const ImVec2 window_pos = ImGui::GetWindowPos();
 
   for (const stdr_simulation::world::RobotState& robot : snapshot.robots)
   {
@@ -375,7 +382,7 @@ void MapPanel::render_sensor_overlays(const SimulationSnapshot& snapshot,
       const stdr_simulation::Pose2D sensor_world = transform_to_world(robot.pose, sensor_pose);
 
       const ScreenPoint sensor_sp = transform_.world_to_screen(sensor_world.x, sensor_world.y);
-      const ImVec2 sensor_screen{ window_pos.x + sensor_sp.x, window_pos.y + sensor_sp.y };
+      const ImVec2 sensor_screen{ content_origin_.x + sensor_sp.x, content_origin_.y + sensor_sp.y };
 
       for (std::size_t i = 0; i < scan.ranges.size(); ++i)
       {
@@ -385,7 +392,7 @@ void MapPanel::render_sensor_overlays(const SimulationSnapshot& snapshot,
         const double end_wy = sensor_world.y + range * std::sin(angle);
 
         const ScreenPoint end_sp = transform_.world_to_screen(end_wx, end_wy);
-        const ImVec2 end_screen{ window_pos.x + end_sp.x, window_pos.y + end_sp.y };
+        const ImVec2 end_screen{ content_origin_.x + end_sp.x, content_origin_.y + end_sp.y };
 
         draw_list->AddLine(sensor_screen, end_screen, IM_COL32(255, 50, 50, 80), 1.0f);
       }
@@ -404,7 +411,7 @@ void MapPanel::render_sensor_overlays(const SimulationSnapshot& snapshot,
       const stdr_simulation::Pose2D sensor_world = transform_to_world(robot.pose, cfg.pose);
 
       const ScreenPoint sensor_sp = transform_.world_to_screen(sensor_world.x, sensor_world.y);
-      const ImVec2 sensor_screen{ window_pos.x + sensor_sp.x, window_pos.y + sensor_sp.y };
+      const ImVec2 sensor_screen{ content_origin_.x + sensor_sp.x, content_origin_.y + sensor_sp.y };
 
       const double range = scan.range;
       const double half_cone = cfg.cone_angle * 0.5;
@@ -420,8 +427,8 @@ void MapPanel::render_sensor_overlays(const SimulationSnapshot& snapshot,
       const ScreenPoint left_sp = transform_.world_to_screen(left_wx, left_wy);
       const ScreenPoint right_sp = transform_.world_to_screen(right_wx, right_wy);
 
-      const ImVec2 left_screen{ window_pos.x + left_sp.x, window_pos.y + left_sp.y };
-      const ImVec2 right_screen{ window_pos.x + right_sp.x, window_pos.y + right_sp.y };
+      const ImVec2 left_screen{ content_origin_.x + left_sp.x, content_origin_.y + left_sp.y };
+      const ImVec2 right_screen{ content_origin_.x + right_sp.x, content_origin_.y + right_sp.y };
 
       draw_list->AddLine(sensor_screen, left_screen, IM_COL32(50, 200, 255, 120), 1.5f);
       draw_list->AddLine(sensor_screen, right_screen, IM_COL32(50, 200, 255, 120), 1.5f);
@@ -433,14 +440,13 @@ void MapPanel::render_sensor_overlays(const SimulationSnapshot& snapshot,
 void MapPanel::render_environment_sources(const SimulationSnapshot& snapshot)
 {
   ImDrawList* draw_list = ImGui::GetWindowDrawList();
-  const ImVec2 window_pos = ImGui::GetWindowPos();
   constexpr float kSourceRadius = 6.0f;
 
   // RFID tags: green.
   for (const stdr_simulation::RfidTag& tag : snapshot.rfid_tags)
   {
     const ScreenPoint sp = transform_.world_to_screen(tag.pose.x, tag.pose.y);
-    const ImVec2 center{ window_pos.x + sp.x, window_pos.y + sp.y };
+    const ImVec2 center{ content_origin_.x + sp.x, content_origin_.y + sp.y };
     draw_list->AddCircleFilled(center, kSourceRadius, IM_COL32(0, 220, 50, 200));
     draw_list->AddText(ImVec2(center.x + kSourceRadius + 2.0f, center.y - 6.0f), IM_COL32(0, 220, 50, 255),
                        tag.tag_id.c_str());
@@ -450,7 +456,7 @@ void MapPanel::render_environment_sources(const SimulationSnapshot& snapshot)
   for (const stdr_simulation::CO2Source& src : snapshot.co2_sources)
   {
     const ScreenPoint sp = transform_.world_to_screen(src.pose.x, src.pose.y);
-    const ImVec2 center{ window_pos.x + sp.x, window_pos.y + sp.y };
+    const ImVec2 center{ content_origin_.x + sp.x, content_origin_.y + sp.y };
     draw_list->AddCircleFilled(center, kSourceRadius, IM_COL32(220, 50, 50, 200));
     draw_list->AddText(ImVec2(center.x + kSourceRadius + 2.0f, center.y - 6.0f), IM_COL32(220, 50, 50, 255),
                        src.id.c_str());
@@ -460,7 +466,7 @@ void MapPanel::render_environment_sources(const SimulationSnapshot& snapshot)
   for (const stdr_simulation::ThermalSource& src : snapshot.thermal_sources)
   {
     const ScreenPoint sp = transform_.world_to_screen(src.pose.x, src.pose.y);
-    const ImVec2 center{ window_pos.x + sp.x, window_pos.y + sp.y };
+    const ImVec2 center{ content_origin_.x + sp.x, content_origin_.y + sp.y };
     draw_list->AddCircleFilled(center, kSourceRadius, IM_COL32(255, 140, 0, 200));
     draw_list->AddText(ImVec2(center.x + kSourceRadius + 2.0f, center.y - 6.0f), IM_COL32(255, 140, 0, 255),
                        src.id.c_str());
@@ -470,7 +476,7 @@ void MapPanel::render_environment_sources(const SimulationSnapshot& snapshot)
   for (const stdr_simulation::SoundSource& src : snapshot.sound_sources)
   {
     const ScreenPoint sp = transform_.world_to_screen(src.pose.x, src.pose.y);
-    const ImVec2 center{ window_pos.x + sp.x, window_pos.y + sp.y };
+    const ImVec2 center{ content_origin_.x + sp.x, content_origin_.y + sp.y };
     draw_list->AddCircleFilled(center, kSourceRadius, IM_COL32(80, 120, 255, 200));
     draw_list->AddText(ImVec2(center.x + kSourceRadius + 2.0f, center.y - 6.0f), IM_COL32(80, 120, 255, 255),
                        src.id.c_str());
@@ -485,15 +491,13 @@ void MapPanel::render_map_info_overlay(const SimulationSnapshot& snapshot)
     return;
   }
 
-  // Semi-transparent overlay in the bottom-left corner of the map window.
-  const ImVec2 window_pos = ImGui::GetWindowPos();
-  const ImVec2 window_size = ImGui::GetWindowSize();
-
+  // Semi-transparent overlay in the bottom-left corner of the content region.
   constexpr float kPadding = 8.0f;
   constexpr float kOverlayWidth = 220.0f;
   constexpr float kOverlayHeight = 80.0f;
 
-  const ImVec2 overlay_pos{ window_pos.x + kPadding, window_pos.y + window_size.y - kOverlayHeight - kPadding };
+  const ImVec2 overlay_pos{ content_origin_.x + kPadding,
+                            content_origin_.y + content_size_.y - kOverlayHeight - kPadding };
   const ImVec2 overlay_end{ overlay_pos.x + kOverlayWidth, overlay_pos.y + kOverlayHeight };
 
   ImDrawList* draw_list = ImGui::GetWindowDrawList();
@@ -552,14 +556,13 @@ void MapPanel::render_velocity_overlay(const SimulationSnapshot& snapshot)
     return;
   }
 
-  // Place the overlay in the top-left corner of the map window, above the
-  // map-info overlay that occupies the bottom-left.
-  const ImVec2 window_pos = ImGui::GetWindowPos();
+  // Place the overlay in the top-left corner of the content region so it
+  // appears below the title bar, not overlapping it.
   constexpr float kPadding = 8.0f;
   constexpr float kOverlayWidth = 200.0f;
   constexpr float kOverlayHeight = 60.0f;
 
-  const ImVec2 overlay_pos{ window_pos.x + kPadding, window_pos.y + kPadding };
+  const ImVec2 overlay_pos{ content_origin_.x + kPadding, content_origin_.y + kPadding };
   const ImVec2 overlay_end{ overlay_pos.x + kOverlayWidth, overlay_pos.y + kOverlayHeight };
 
   ImDrawList* draw_list = ImGui::GetWindowDrawList();
@@ -605,9 +608,11 @@ void MapPanel::render_context_menu(SimulatorBackend& backend, const SimulationSn
       // target is the map location where the user clicked, not the menu item.
       if (ImGui::MenuItem("Teleport here"))
       {
-        const ImVec2 window_pos = ImGui::GetWindowPos();
+        // context_click_x_/y_ are absolute screen coords from GetMousePos(); subtract
+        // content_origin_ (not window pos) to convert to transform-space coords, which
+        // are relative to the drawable content area below the title bar.
         const auto [wx, wy] =
-            transform_.screen_to_world(context_click_x_ - window_pos.x, context_click_y_ - window_pos.y);
+            transform_.screen_to_world(context_click_x_ - content_origin_.x, context_click_y_ - content_origin_.y);
 
         // Find current theta to preserve orientation.
         double theta = 0.0;

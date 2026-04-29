@@ -66,6 +66,11 @@ const RobotState* WorldModel::get_robot(const std::string& name) const
   return &it->second;
 }
 
+std::size_t WorldModel::robot_count() const
+{
+  return robots_.size();
+}
+
 std::vector<RobotState> WorldModel::get_all_robots() const
 {
   std::vector<RobotState> result;
@@ -75,6 +80,17 @@ std::vector<RobotState> WorldModel::get_all_robots() const
     result.push_back(state);
   }
   return result;
+}
+
+std::vector<std::string> WorldModel::robot_names() const
+{
+  std::vector<std::string> names;
+  names.reserve(robots_.size());
+  for (const auto& [name, state] : robots_)
+  {
+    names.push_back(name);
+  }
+  return names;
 }
 
 void WorldModel::add_rfid_tag(const stdr_simulation::RfidTag& tag)

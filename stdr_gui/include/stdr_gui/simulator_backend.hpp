@@ -1,13 +1,20 @@
 #pragma once
 
 // RobotSensorData is defined here; there is no lighter header for it yet.
+#include <stdr_gui/plot/plotter.hpp>
+#include <stdr_simulation/plot_data/command_queue.hpp>
 #include <stdr_simulation/simulation_engine.hpp>
 #include <stdr_simulation/types.hpp>
 #include <stdr_simulation/world/world_model.hpp>
 #include <tl_expected/expected.hpp>
 
+#include <algorithm>
+#include <cstddef>
+#include <cstdint>
 #include <memory>
+#include <optional>
 #include <string>
+#include <string_view>
 #include <unordered_map>
 #include <vector>
 
@@ -34,6 +41,41 @@ struct SimulationSnapshot
   std::vector<stdr_simulation::SoundSource> sound_sources;
   double elapsed_time{ 0.0 };
   bool running{ false };
+
+  /** @brief Look up a robot by name in the snapshot.
+   *
+   *  Avoids forcing every plotter to write an identical std::find_if loop.
+   *  Returns a non-owning pointer into `robots` — valid as long as the caller
+   *  holds a reference to this `SimulationSnapshot` instance (typically via
+   *  `shared_ptr<const SimulationSnapshot>`).  Returns nullptr if no robot
+   *  with the given name is present. */
+  [[nodiscard]] const stdr_simulation::world::RobotState* robot(std::string_view name) const noexcept
+  {
+    const auto it = std::find_if(robots.begin(), robots.end(),
+                                 [name](const stdr_simulation::world::RobotState& r) { return r.name == name; });
+    return it != robots.end() ? &(*it) : nullptr;
+  }
+};
+
+/** @brief Result of a poll_laser_events() call.
+ *
+ *  Owns the copied scan data — the copy is performed under the sensor ring
+ *  lock so callers never access the ring's internal buffer after the lock is
+ *  released.  Eliminates the data race that existed when callers inserted from
+ *  a span returned after the lock had already been dropped. */
+struct DrainedLaserResult
+{
+  std::vector<stdr::plot::TimedLaserScan> scans;
+  std::size_t dropped{ 0 };
+};
+
+/** @brief Result of a poll_sonar_events() call.
+ *
+ *  Same ownership model as `DrainedLaserResult` — copy is done under lock. */
+struct DrainedSonarResult
+{
+  std::vector<stdr::plot::TimedSonarReading> scans;
+  std::size_t dropped{ 0 };
 };
 
 /** @brief Abstract interface between the GUI and the simulation.
@@ -104,6 +146,165 @@ public:
 
   /** @brief Poll for backend-produced log/status messages (non-blocking). */
   [[nodiscard]] virtual std::vector<std::string> poll_messages() = 0;
+
+  // --- Introspection methods ---
+  //
+  // Each call acquires the simulation lock for the duration of the call, so
+  // returned values are internally consistent. Callers making multiple
+  // successive calls may observe updates between calls; batching via a single
+  // get_snapshot() call is the caller's responsibility when cross-call
+  // consistency is required.
+  //
+  // Default implementations return empty / nullopt so that backends that have
+  // not yet wired these (e.g. Ros2Backend) compile and behave safely without
+  // overriding them.
+
+  /** @brief Return the number of robots currently in the simulation. */
+  [[nodiscard]] virtual std::size_t num_robots() const
+  {
+    return 0;
+  }
+
+  /** @brief Return the names of all robots currently in the simulation.
+   *
+   *  Returns owning strings rather than views to prevent dangling references
+   *  if the caller stores IDs across frames. */
+  [[nodiscard]] virtual std::vector<std::string> robot_ids() const
+  {
+    return {};
+  }
+
+  /** @brief Return the sensor frame IDs of all laser sensors on @p robot_id.
+   *
+   *  Returns an empty vector if @p robot_id is not found. */
+  [[nodiscard]] virtual std::vector<std::string> laser_sensors(const std::string& /*robot_id*/) const
+  {
+    return {};
+  }
+
+  /** @brief Return the sensor frame IDs of all sonar sensors on @p robot_id.
+   *
+   *  Returns an empty vector if @p robot_id is not found. */
+  [[nodiscard]] virtual std::vector<std::string> sonar_sensors(const std::string& /*robot_id*/) const
+  {
+    return {};
+  }
+
+  /** @brief Return the current pose of @p robot_id, or nullopt if not found. */
+  [[nodiscard]] virtual std::optional<stdr_simulation::Pose2D> pose(const std::string& /*robot_id*/) const
+  {
+    return std::nullopt;
+  }
+
+  /** @brief Return the current velocity command of @p robot_id, or nullopt if not found. */
+  [[nodiscard]] virtual std::optional<stdr_simulation::Twist2D> twist(const std::string& /*robot_id*/) const
+  {
+    return std::nullopt;
+  }
+
+  /** @brief Return the latest laser scan from @p sensor_id on @p robot_id.
+   *
+   *  Returns nullopt if the robot or sensor is not found, or if no scan has
+   *  been produced yet (e.g. no map loaded). */
+  [[nodiscard]] virtual std::optional<stdr_simulation::LaserScan> latest_laser(const std::string& /*robot_id*/,
+                                                                               const std::string& /*sensor_id*/) const
+  {
+    return std::nullopt;
+  }
+
+  /** @brief Return the latest sonar reading from @p sensor_id on @p robot_id.
+   *
+   *  Returns nullopt if the robot or sensor is not found, or if no scan has
+   *  been produced yet (e.g. no map loaded). */
+  [[nodiscard]] virtual std::optional<stdr_simulation::SonarScan> latest_sonar(const std::string& /*robot_id*/,
+                                                                               const std::string& /*sensor_id*/) const
+  {
+    return std::nullopt;
+  }
+
+  /** @brief Return whether @p robot_id collided on the most recent step.
+   *
+   *  Returns nullopt if @p robot_id is not found. */
+  [[nodiscard]] virtual std::optional<bool> collided(const std::string& /*robot_id*/) const
+  {
+    return std::nullopt;
+  }
+
+  /** @brief Return the robot's footprint polygon vertices in robot-local frame.
+   *
+   *  Returns an empty vector if the robot is not found or has no footprint.
+   *  @note Default is a no-op fallback for backends that have not yet wired
+   *        footprint introspection (e.g. Ros2Backend). */
+  [[nodiscard]] virtual std::vector<stdr_simulation::Point2D> footprint(const std::string& /*robot_id*/) const
+  {
+    return {};
+  }
+
+  /** @brief Return the elapsed simulation time in seconds.
+   *  @return 0.0 if the backend has not yet wired this method. */
+  [[nodiscard]] virtual double sim_time() const
+  {
+    return 0.0;
+  }
+
+  // --- Sensor event log polling ---
+  //
+  // These methods allow the GUI thread to drain per-sensor SPSC rings that the
+  // sim thread fills after each physics step.  Each plotter maintains its own
+  // cursor so multiple plotters can independently consume the same ring without
+  // starving each other.
+  //
+  // The cursor is an opaque sequence number: initialise to 0 before the first
+  // call and pass the same variable on every subsequent call.  The backend
+  // advances it past any returned (and any dropped) entries.
+  //
+  // DrainedLaserResult/DrainedSonarResult own their scan data via std::vector.
+  // The copy from the ring's internal buffer is performed while the sensor ring
+  // lock is held, so callers receive stable, owned data with no lifetime
+  // dependency on the ring.
+  //
+  // Default implementations return empty results so backends that have not
+  // wired event logs (e.g. Ros2Backend) compile and behave safely.
+
+  /** @brief Drain laser scans produced since the last call with @p cursor.
+   *
+   *  @param[in,out] cursor  Opaque per-consumer sequence number; initialise
+   *                         to 0 before the first call.
+   *  @param robot_id        Robot name.
+   *  @param sensor_id       Laser sensor frame ID.
+   *  @return Owning vector of scans (copied under lock) and a count of dropped
+   *          entries.  Empty if the robot/sensor pair is not found. */
+  [[nodiscard]] virtual DrainedLaserResult poll_laser_events(std::uint64_t& /*cursor*/, const std::string& /*robot_id*/,
+                                                             const std::string& /*sensor_id*/)
+  {
+    return {};
+  }
+
+  /** @brief Drain sonar readings produced since the last call with @p cursor.
+   *
+   *  See `poll_laser_events` for cursor and lifetime semantics. */
+  [[nodiscard]] virtual DrainedSonarResult poll_sonar_events(std::uint64_t& /*cursor*/, const std::string& /*robot_id*/,
+                                                             const std::string& /*sensor_id*/)
+  {
+    return {};
+  }
+
+  // --- Command injection ---
+
+  /** @brief Enqueue a command to be dispatched by the sim thread.
+   *
+   *  Backends that do not yet support command injection (e.g. Ros2Backend)
+   *  inherit this no-op default.  `StandaloneBackend` overrides it to push
+   *  into `cmd_queue_`, which the sim thread drains at the top of each step.
+   *
+   *  Callers must not hold `sim_mutex_` when calling this method — the point
+   *  is to avoid GUI-thread contention with the sim thread.
+   *
+   *  @param cmd  Command to enqueue.  Copied into the queue; the caller's
+   *              copy is unaffected. */
+  virtual void push_command(stdr::plot_data::Command /*cmd*/)
+  {
+  }
 
 protected:
   SimulatorBackend() = default;

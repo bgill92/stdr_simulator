@@ -89,8 +89,14 @@ public:
    */
   [[nodiscard]] const RobotState* get_robot(const std::string& name) const;
 
+  /** @brief Return the number of robots currently in the world without copying state. */
+  [[nodiscard]] std::size_t robot_count() const;
+
   /** @brief Return a snapshot of every robot currently in the world. */
   [[nodiscard]] std::vector<RobotState> get_all_robots() const;
+
+  /** @brief Return the names of all robots currently in the world without copying state. */
+  [[nodiscard]] std::vector<std::string> robot_names() const;
 
   // --- Environment sources ---
 

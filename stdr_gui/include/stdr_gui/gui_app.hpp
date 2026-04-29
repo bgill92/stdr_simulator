@@ -6,6 +6,7 @@
 #include <stdr_gui/panels/robot_info_panel.hpp>
 #include <stdr_gui/panels/sensor_window.hpp>
 #include <stdr_gui/panels/toolbar.hpp>
+#include <stdr_gui/plot/plot_panel.hpp>
 #include <stdr_gui/simulator_backend.hpp>
 #include <stdr_gui/teleop_controller.hpp>
 #include <tl_expected/expected.hpp>
@@ -51,6 +52,7 @@ private:
   void handle_file_dialog_result();
   void render_spawn_dialog();
   void render_teleop_window();
+  void render_plot_panel();
   void dispatch_teleop(const SimulationSnapshot& snapshot);
 
   std::unique_ptr<SimulatorBackend> backend_;
@@ -68,6 +70,11 @@ private:
   Toolbar toolbar_;
   FileDialog file_dialog_;
   std::vector<std::unique_ptr<SensorWindow>> sensor_windows_;
+
+  // Owns one PlotPanel that drives all registered plotter plugins each frame.
+  // Constructed lazily on first frame so the backend is ready before on_init
+  // is called on each plotter.
+  std::unique_ptr<stdr::plot::PlotPanel> plot_panel_;
 
   // Spawn dialog state: shown after picking a robot file, before committing the spawn.
   bool show_spawn_dialog_{ false };

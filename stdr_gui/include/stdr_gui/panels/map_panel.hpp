@@ -3,6 +3,8 @@
 #include <stdr_gui/map_transform.hpp>
 #include <stdr_gui/simulator_backend.hpp>
 
+#include <imgui.h>
+
 #include <cstdint>
 #include <string>
 #include <string_view>
@@ -55,6 +57,12 @@ private:
   void render_velocity_overlay(const SimulationSnapshot& snapshot);
 
   MapTransform transform_;
+  // Top-left and size of the content region (below the title bar), captured at
+  // the start of each render() call.  All draw-list calls that anchor
+  // world-space coordinates into screen space use content_origin_ so that
+  // drawings are never shifted up under the title bar.
+  ImVec2 content_origin_{};
+  ImVec2 content_size_{};
   GLuint map_texture_{ 0 };
   std::int32_t cached_map_width_{ 0 };
   std::int32_t cached_map_height_{ 0 };
@@ -66,7 +74,7 @@ private:
   std::string selected_robot_;
   std::string teleop_target_;
   bool show_grid_{ false };
-  bool locked_view_{ false };
+  bool locked_view_{ true };
   bool dragging_robot_{ false };
 
   // Screen position where the context menu was opened, captured on right-click
