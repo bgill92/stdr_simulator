@@ -50,6 +50,21 @@ install(
   LIBRARY DESTINATION lib
   RUNTIME DESTINATION bin)
 
+ament_export_targets(${PROJECT_NAME}Targets HAS_LIBRARY_TARGET)
+ament_export_dependencies(
+  rclcpp
+  rclcpp_action
+  rclcpp_components
+  tf2
+  tf2_ros
+  nav_msgs
+  sensor_msgs
+  geometry_msgs
+  stdr_msgs
+  stdr_simulation
+  stdr_parser
+  rosidl_default_runtime)
+
 if(BUILD_TESTING)
   find_package(ament_cmake_gtest REQUIRED)
   find_package(GTest REQUIRED)
