@@ -2,6 +2,7 @@
 
 #include <stdr_gui/simulator_backend.hpp>
 #include <stdr_parser/msg_conversions.hpp>
+#include <stdr_simulation/plot_data/spsc_ring.hpp>
 
 #include <tf2/utils.h>
 #include <tf2_geometry_msgs/tf2_geometry_msgs.hpp>
@@ -10,6 +11,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cstdint>
 #include <filesystem>
 #include <memory>
 #include <string>
@@ -20,7 +22,7 @@ namespace stdr_gui_ros
 {
 
 Ros2Backend::Ros2Backend(std::shared_ptr<rclcpp::Node> node)
-  : node_(std::move(node)), alive_(std::make_shared<std::atomic<bool>>(true))
+  : node_(std::move(node)), start_time_(node_->now()), alive_(std::make_shared<std::atomic<bool>>(true))
 {
   // Transient local (latched) QoS to match stdr_server publishers, so a
   // late-joining GUI still receives the current map and robot list immediately.
@@ -212,6 +214,9 @@ void Ros2Backend::set_cmd_vel(const std::string& robot_name, const stdr_simulati
     }
     else
     {
+      // Cache the commanded velocity so twist() can return it.
+      latest_cmd_vel_[robot_name] = cmd;
+
       auto it = cmd_vel_pubs_.find(robot_name);
       if (it == cmd_vel_pubs_.end())
       {
@@ -296,6 +301,187 @@ void Ros2Backend::push_message(std::string msg)
   messages_.push_back(std::move(msg));
 }
 
+// ─── Introspection ────────────────────────────────────────────────────────────
+//
+// Each method acquires snapshot_mutex_ for the duration of the call so the
+// returned values are internally consistent. This mirrors the StandaloneBackend
+// pattern which holds sim_mutex_ for the same purpose.
+
+std::size_t Ros2Backend::num_robots() const
+{
+  const std::lock_guard<std::mutex> lock(snapshot_mutex_);
+  return robot_states_.size();
+}
+
+std::vector<std::string> Ros2Backend::robot_ids() const
+{
+  const std::lock_guard<std::mutex> lock(snapshot_mutex_);
+  std::vector<std::string> ids;
+  ids.reserve(robot_states_.size());
+  for (const stdr_simulation::world::RobotState& state : robot_states_)
+  {
+    ids.push_back(state.name);
+  }
+  return ids;
+}
+
+std::vector<std::string> Ros2Backend::laser_sensors(const std::string& robot_id) const
+{
+  const std::lock_guard<std::mutex> lock(snapshot_mutex_);
+  const auto it = std::find_if(robot_states_.begin(), robot_states_.end(),
+                               [&robot_id](const stdr_simulation::world::RobotState& s) { return s.name == robot_id; });
+  if (it == robot_states_.end())
+  {
+    return {};
+  }
+  std::vector<std::string> ids;
+  ids.reserve(it->config.laser_sensors.size());
+  for (const stdr_simulation::LaserConfig& cfg : it->config.laser_sensors)
+  {
+    ids.push_back(cfg.frame_id);
+  }
+  return ids;
+}
+
+std::vector<std::string> Ros2Backend::sonar_sensors(const std::string& robot_id) const
+{
+  const std::lock_guard<std::mutex> lock(snapshot_mutex_);
+  const auto it = std::find_if(robot_states_.begin(), robot_states_.end(),
+                               [&robot_id](const stdr_simulation::world::RobotState& s) { return s.name == robot_id; });
+  if (it == robot_states_.end())
+  {
+    return {};
+  }
+  std::vector<std::string> ids;
+  ids.reserve(it->config.sonar_sensors.size());
+  for (const stdr_simulation::SonarConfig& cfg : it->config.sonar_sensors)
+  {
+    ids.push_back(cfg.frame_id);
+  }
+  return ids;
+}
+
+std::optional<stdr_simulation::Pose2D> Ros2Backend::pose(const std::string& robot_id) const
+{
+  const std::lock_guard<std::mutex> lock(snapshot_mutex_);
+  const auto it = latest_pose_.find(robot_id);
+  if (it == latest_pose_.end())
+  {
+    return std::nullopt;
+  }
+  return it->second;
+}
+
+std::optional<stdr_simulation::Twist2D> Ros2Backend::twist(const std::string& robot_id) const
+{
+  const std::lock_guard<std::mutex> lock(snapshot_mutex_);
+  // Return the most-recently commanded velocity, matching StandaloneBackend's
+  // cmd_vel semantics: the value last passed to set_cmd_vel(), not measured odom.
+  const auto it = latest_cmd_vel_.find(robot_id);
+  if (it == latest_cmd_vel_.end())
+  {
+    return std::nullopt;
+  }
+  return it->second;
+}
+
+std::optional<bool> Ros2Backend::collided(const std::string& robot_id) const
+{
+  // FIXME-CLAUDE: NOT IMPLEMENTED - stdr_robot does not publish collision state.
+  // Tracked separately.
+  const std::lock_guard<std::mutex> lock(snapshot_mutex_);
+  const bool robot_known =
+      std::any_of(robot_states_.begin(), robot_states_.end(),
+                  [&robot_id](const stdr_simulation::world::RobotState& s) { return s.name == robot_id; });
+  if (!robot_known)
+  {
+    return std::nullopt;
+  }
+  return false;
+}
+
+std::vector<stdr_simulation::Point2D> Ros2Backend::footprint(const std::string& robot_id) const
+{
+  const std::lock_guard<std::mutex> lock(snapshot_mutex_);
+  const auto it = std::find_if(robot_states_.begin(), robot_states_.end(),
+                               [&robot_id](const stdr_simulation::world::RobotState& s) { return s.name == robot_id; });
+  if (it == robot_states_.end())
+  {
+    return {};
+  }
+  return it->config.footprint.points;
+}
+
+double Ros2Backend::sim_time() const
+{
+  // Wall-clock since construction; no discrete simulation steps exist in ROS2 mode.
+  return (node_->now() - start_time_).seconds();
+}
+
+std::optional<stdr_simulation::LaserScan> Ros2Backend::latest_laser(const std::string& robot_id,
+                                                                    const std::string& sensor_id) const
+{
+  const std::string key = robot_id + "/" + sensor_id;
+  const std::lock_guard<std::mutex> ring_lock(sensor_ring_mutex_);
+  const auto it = latest_laser_.find(key);
+  if (it == latest_laser_.end())
+  {
+    return std::nullopt;
+  }
+  return it->second;
+}
+
+stdr_gui::DrainedLaserResult Ros2Backend::poll_laser_events(std::uint64_t& cursor, const std::string& robot_id,
+                                                            const std::string& sensor_id)
+{
+  const std::string key = robot_id + "/" + sensor_id;
+  const std::lock_guard<std::mutex> ring_lock(sensor_ring_mutex_);
+  const auto it = laser_rings_.find(key);
+  if (it == laser_rings_.end())
+  {
+    return {};
+  }
+  const stdr::plot_data::DrainResult<stdr::plot::TimedLaserScan> result = it->second->drain(cursor);
+  // Copy the span into an owning vector while still holding ring_lock.  The
+  // ROS callback thread can call push() as soon as the lock is released, so
+  // any access to result.entries after this scope would be a data race.
+  return stdr_gui::DrainedLaserResult{
+    std::vector<stdr::plot::TimedLaserScan>(result.entries.begin(), result.entries.end()), result.dropped
+  };
+}
+
+std::optional<stdr_simulation::SonarScan> Ros2Backend::latest_sonar(const std::string& robot_id,
+                                                                    const std::string& sensor_id) const
+{
+  const std::string key = robot_id + "/" + sensor_id;
+  const std::lock_guard<std::mutex> ring_lock(sensor_ring_mutex_);
+  const auto it = latest_sonar_.find(key);
+  if (it == latest_sonar_.end())
+  {
+    return std::nullopt;
+  }
+  return it->second;
+}
+
+stdr_gui::DrainedSonarResult Ros2Backend::poll_sonar_events(std::uint64_t& cursor, const std::string& robot_id,
+                                                            const std::string& sensor_id)
+{
+  const std::string key = robot_id + "/" + sensor_id;
+  const std::lock_guard<std::mutex> ring_lock(sensor_ring_mutex_);
+  const auto it = sonar_rings_.find(key);
+  if (it == sonar_rings_.end())
+  {
+    return {};
+  }
+  const stdr::plot_data::DrainResult<stdr::plot::TimedSonarReading> result = it->second->drain(cursor);
+  // Copy the span into an owning vector while still holding ring_lock.  The
+  // ROS callback thread can call push() as soon as the lock is released, so
+  // any access to result.entries after this scope would be a data race.
+  return stdr_gui::DrainedSonarResult{
+    std::vector<stdr::plot::TimedSonarReading>(result.entries.begin(), result.entries.end()), result.dropped
+  };
+}
+
 // ─── Subscription callbacks ──────────────────────────────────────────────────
 
 void Ros2Backend::on_map(const nav_msgs::msg::OccupancyGrid::SharedPtr msg)
@@ -314,7 +500,15 @@ void Ros2Backend::on_map(const nav_msgs::msg::OccupancyGrid::SharedPtr msg)
 
 void Ros2Backend::on_active_robots(const stdr_msgs::msg::RobotIndexedVectorMsg::SharedPtr msg)
 {
-  const std::lock_guard<std::mutex> lock(snapshot_mutex_);
+  // Pre-parse all robot configs once before any lock is acquired.  This avoids
+  // calling from_ros_msg() a second time in phase 4 when we enumerate laser
+  // sensors for subscription creation.
+  std::vector<stdr_simulation::RobotConfig> parsed_configs;
+  parsed_configs.reserve(msg->robots.size());
+  for (const stdr_msgs::msg::RobotIndexedMsg& entry : msg->robots)
+  {
+    parsed_configs.push_back(stdr_parser::from_ros_msg(entry.robot));
+  }
 
   // Build the set of names in the new message so we can diff against the
   // current set efficiently.
@@ -325,68 +519,177 @@ void Ros2Backend::on_active_robots(const stdr_msgs::msg::RobotIndexedVectorMsg::
     new_names.insert(entry.name);
   }
 
-  // Drop subscriptions and cached state for robots that disappeared.
-  // Iterating the current map and erasing by name is safe here because we hold
-  // the lock and no other thread modifies these containers.
-  std::vector<std::string> to_remove;
-  for (const auto& [name, unused_sub] : odom_subs_)
+  // Collect the laser and sonar subscription keys belonging to robots that
+  // disappeared.  laser_subs_ and sonar_subs_ are only touched on the executor
+  // thread so no lock is required here.
+  std::vector<std::string> laser_keys_to_remove;
+  for (const auto& [key, unused_sub] : laser_subs_)
   {
-    if (new_names.find(name) == new_names.end())
+    const std::string::size_type slash = key.find('/');
+    if (slash == std::string::npos)
     {
-      to_remove.push_back(name);
+      continue;
+    }
+    if (new_names.find(key.substr(0, slash)) == new_names.end())
+    {
+      laser_keys_to_remove.push_back(key);
     }
   }
-  for (const std::string& name : to_remove)
+
+  std::vector<std::string> sonar_keys_to_remove;
+  for (const auto& [key, unused_sub] : sonar_subs_)
   {
-    odom_subs_.erase(name);
-    latest_pose_.erase(name);
-    cmd_vel_pubs_.erase(name);
-    move_robot_clients_.erase(name);
+    const std::string::size_type slash = key.find('/');
+    if (slash == std::string::npos)
+    {
+      continue;
+    }
+    if (new_names.find(key.substr(0, slash)) == new_names.end())
+    {
+      sonar_keys_to_remove.push_back(key);
+    }
   }
 
-  // Build the new robot_states_ vector and create odom subs for new robots.
-  // We do NOT reset existing odom subs when a robot is still present: dropping
-  // and recreating a subscription would lose any in-flight messages and cause a
-  // brief pose gap visible to the GUI.
-  std::vector<stdr_simulation::world::RobotState> new_states;
-  new_states.reserve(msg->robots.size());
-
-  for (const stdr_msgs::msg::RobotIndexedMsg& entry : msg->robots)
+  // Destroy subscriptions on the executor thread before acquiring any lock.
+  for (const std::string& key : laser_keys_to_remove)
   {
-    stdr_simulation::world::RobotState state;
-    state.name = entry.name;
-    state.config = stdr_parser::from_ros_msg(entry.robot);
-    state.pose = state.config.initial_pose;
-
-    // The active-robots topic carries identity and config, not runtime command
-    // state. Preserve any in-flight cmd_vel for robots that are already known
-    // so that a server republish (e.g. after an env-source change) does not
-    // silently zero out velocity commands mid-move.
-    const auto existing_it =
-        std::find_if(robot_states_.begin(), robot_states_.end(),
-                     [&entry](const stdr_simulation::world::RobotState& s) { return s.name == entry.name; });
-    if (existing_it != robot_states_.end())
-    {
-      state.cmd_vel = existing_it->cmd_vel;
-    }
-    // New robots default-construct cmd_vel (zero).
-
-    if (odom_subs_.find(entry.name) == odom_subs_.end())
-    {
-      // New robot — create its odom subscription and seed the pose cache.
-      const std::string robot_name = entry.name;
-      rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr sub =
-          node_->create_subscription<nav_msgs::msg::Odometry>(
-              robot_name + "/odom", 10,
-              [this, robot_name](const nav_msgs::msg::Odometry::SharedPtr odom_msg) { on_odom(robot_name, odom_msg); });
-      odom_subs_[robot_name] = sub;
-      latest_pose_[robot_name] = state.config.initial_pose;
-    }
-
-    new_states.push_back(std::move(state));
+    laser_subs_.erase(key);
+  }
+  for (const std::string& key : sonar_keys_to_remove)
+  {
+    sonar_subs_.erase(key);
   }
 
-  robot_states_ = std::move(new_states);
+  // Erase ring data for removed keys under sensor_ring_mutex_.
+  // This lock is disjoint from snapshot_mutex_ — never hold both simultaneously.
+  {
+    const std::lock_guard<std::mutex> ring_lock(sensor_ring_mutex_);
+    for (const std::string& key : laser_keys_to_remove)
+    {
+      latest_laser_.erase(key);
+      laser_rings_.erase(key);
+    }
+    for (const std::string& key : sonar_keys_to_remove)
+    {
+      latest_sonar_.erase(key);
+      sonar_rings_.erase(key);
+    }
+  }
+
+  // Now update snapshot state under snapshot_mutex_.
+  {
+    const std::lock_guard<std::mutex> lock(snapshot_mutex_);
+
+    // Drop odom subscriptions and cached state for robots that disappeared.
+    // Iterating the current map and erasing by name is safe here because we hold
+    // the lock and no other thread modifies these containers.
+    std::vector<std::string> to_remove;
+    for (const auto& [name, unused_sub] : odom_subs_)
+    {
+      if (new_names.find(name) == new_names.end())
+      {
+        to_remove.push_back(name);
+      }
+    }
+    for (const std::string& name : to_remove)
+    {
+      odom_subs_.erase(name);
+      latest_pose_.erase(name);
+      latest_cmd_vel_.erase(name);
+      cmd_vel_pubs_.erase(name);
+      move_robot_clients_.erase(name);
+    }
+
+    // Build the new robot_states_ vector and create odom subs for new robots.
+    // We do NOT reset existing odom subs when a robot is still present: dropping
+    // and recreating a subscription would lose any in-flight messages and cause a
+    // brief pose gap visible to the GUI.
+    std::vector<stdr_simulation::world::RobotState> new_states;
+    new_states.reserve(msg->robots.size());
+
+    for (std::size_t i = 0; i < msg->robots.size(); ++i)
+    {
+      const stdr_msgs::msg::RobotIndexedMsg& entry = msg->robots[i];
+      stdr_simulation::world::RobotState state;
+      state.name = entry.name;
+      state.config = parsed_configs[i];
+      state.pose = state.config.initial_pose;
+
+      // The active-robots topic carries identity and config, not runtime command
+      // state. Preserve any in-flight cmd_vel for robots that are already known
+      // so that a server republish (e.g. after an env-source change) does not
+      // silently zero out velocity commands mid-move.
+      const auto existing_it =
+          std::find_if(robot_states_.begin(), robot_states_.end(),
+                       [&entry](const stdr_simulation::world::RobotState& s) { return s.name == entry.name; });
+      if (existing_it != robot_states_.end())
+      {
+        state.cmd_vel = existing_it->cmd_vel;
+      }
+      // New robots default-construct cmd_vel (zero).
+
+      if (odom_subs_.find(entry.name) == odom_subs_.end())
+      {
+        // New robot — create its odom subscription and seed the pose cache.
+        const std::string robot_name = entry.name;
+        rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr sub =
+            node_->create_subscription<nav_msgs::msg::Odometry>(
+                robot_name + "/odom", 10, [this, robot_name](const nav_msgs::msg::Odometry::SharedPtr odom_msg) {
+                  on_odom(robot_name, odom_msg);
+                });
+        odom_subs_[robot_name] = sub;
+        latest_pose_[robot_name] = state.config.initial_pose;
+      }
+
+      new_states.push_back(std::move(state));
+    }
+
+    robot_states_ = std::move(new_states);
+  }
+
+  // Create laser and sonar subscriptions for new (robot, sensor) pairs.
+  // laser_subs_ and sonar_subs_ are executor-thread-only; no lock needed.
+  for (std::size_t i = 0; i < msg->robots.size(); ++i)
+  {
+    const stdr_msgs::msg::RobotIndexedMsg& entry = msg->robots[i];
+
+    for (const stdr_simulation::LaserConfig& laser_cfg : parsed_configs[i].laser_sensors)
+    {
+      const std::string key = entry.name + "/" + laser_cfg.frame_id;
+      if (laser_subs_.find(key) == laser_subs_.end())
+      {
+        const std::string robot_name = entry.name;
+        const std::string frame_id = laser_cfg.frame_id;
+        // The topic stdr_robot publishes is "robot_name/frame_id" (see
+        // stdr_robot_node.cpp create_sensor_publishers_and_tf).
+        rclcpp::Subscription<sensor_msgs::msg::LaserScan>::SharedPtr sub =
+            node_->create_subscription<sensor_msgs::msg::LaserScan>(
+                key, 10, [this, robot_name, frame_id](const sensor_msgs::msg::LaserScan::SharedPtr laser_msg) {
+                  on_laser(robot_name, frame_id, laser_msg);
+                });
+        laser_subs_[key] = sub;
+      }
+    }
+
+    for (const stdr_simulation::SonarConfig& sonar_cfg : parsed_configs[i].sonar_sensors)
+    {
+      const std::string key = entry.name + "/" + sonar_cfg.frame_id;
+      if (sonar_subs_.find(key) == sonar_subs_.end())
+      {
+        const std::string robot_name = entry.name;
+        const std::string frame_id = sonar_cfg.frame_id;
+        // The topic stdr_robot publishes is "robot_name/frame_id" using the
+        // same template as laser sensors (see stdr_robot_node.cpp
+        // create_sensor_publishers_and_tf).
+        rclcpp::Subscription<sensor_msgs::msg::Range>::SharedPtr sub =
+            node_->create_subscription<sensor_msgs::msg::Range>(
+                key, 10, [this, robot_name, frame_id](const sensor_msgs::msg::Range::SharedPtr range_msg) {
+                  on_sonar(robot_name, frame_id, range_msg);
+                });
+        sonar_subs_[key] = sub;
+      }
+    }
+  }
 }
 
 void Ros2Backend::on_odom(const std::string& robot_name, const nav_msgs::msg::Odometry::SharedPtr msg)
@@ -400,6 +703,48 @@ void Ros2Backend::on_odom(const std::string& robot_name, const nav_msgs::msg::Od
 
   const std::lock_guard<std::mutex> lock(snapshot_mutex_);
   latest_pose_[robot_name] = pose;
+}
+
+void Ros2Backend::on_laser(const std::string& robot_name, const std::string& frame_id,
+                           const sensor_msgs::msg::LaserScan::SharedPtr msg)
+{
+  const stdr_simulation::LaserScan scan = stdr_parser::from_ros_msg(*msg);
+  const std::string key = robot_name + "/" + frame_id;
+  const double timestamp = rclcpp::Time(msg->header.stamp).seconds();
+
+  const std::lock_guard<std::mutex> ring_lock(sensor_ring_mutex_);
+  latest_laser_[key] = scan;
+
+  auto ring_it = laser_rings_.find(key);
+  if (ring_it == laser_rings_.end())
+  {
+    ring_it = laser_rings_
+                  .emplace(key, std::make_unique<stdr::plot_data::SpscRing<stdr::plot::TimedLaserScan>>(
+                                    stdr::plot_data::kDefaultSensorLogCapacity))
+                  .first;
+  }
+  ring_it->second->push(stdr::plot::TimedLaserScan{ timestamp, scan });
+}
+
+void Ros2Backend::on_sonar(const std::string& robot_name, const std::string& frame_id,
+                           const sensor_msgs::msg::Range::SharedPtr msg)
+{
+  const stdr_simulation::SonarScan scan = stdr_parser::from_ros_msg(*msg);
+  const std::string key = robot_name + "/" + frame_id;
+  const double timestamp = rclcpp::Time(msg->header.stamp).seconds();
+
+  const std::lock_guard<std::mutex> ring_lock(sensor_ring_mutex_);
+  latest_sonar_[key] = scan;
+
+  auto ring_it = sonar_rings_.find(key);
+  if (ring_it == sonar_rings_.end())
+  {
+    ring_it = sonar_rings_
+                  .emplace(key, std::make_unique<stdr::plot_data::SpscRing<stdr::plot::TimedSonarReading>>(
+                                    stdr::plot_data::kDefaultSensorLogCapacity))
+                  .first;
+  }
+  ring_it->second->push(stdr::plot::TimedSonarReading{ timestamp, scan });
 }
 
 void Ros2Backend::on_rfid_list(const stdr_msgs::msg::RfidTagVector::SharedPtr msg)

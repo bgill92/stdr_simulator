@@ -90,12 +90,31 @@ namespace stdr_parser
 [[nodiscard]] sensor_msgs::msg::LaserScan to_ros_msg(const stdr_simulation::LaserScan& scan);
 
 /**
+ * @brief Convert a ROS sensor_msgs::msg::LaserScan back to a simulation LaserScan.
+ * @note header.frame_id and header.stamp are not represented in the
+ *       simulation type; the caller is responsible for associating timestamps
+ *       externally (e.g. via TimedLaserScan) when needed.
+ */
+[[nodiscard]] stdr_simulation::LaserScan from_ros_msg(const sensor_msgs::msg::LaserScan& msg);
+
+/**
  * @brief Convert a simulation SonarScan to a ROS sensor_msgs::msg::Range.
  * @param scan  The raw sonar measurement containing the measured range.
  * @param config The sonar configuration supplying range limits and field of view.
  */
 [[nodiscard]] sensor_msgs::msg::Range to_ros_sonar_msg(const stdr_simulation::SonarScan& scan,
                                                        const stdr_simulation::SonarConfig& config);
+
+/**
+ * @brief Convert a ROS sensor_msgs::msg::Range back to a simulation SonarScan.
+ * @note The forward path (to_ros_sonar_msg) encodes radiation_type, field_of_view,
+ *       min_range, and max_range from the SonarConfig — these are configuration
+ *       metadata rather than measurement data, so this reverse converter intentionally
+ *       drops them.  Only the range measurement is recoverable from a Range message
+ *       without the original config.
+ */
+[[nodiscard]] stdr_simulation::SonarScan from_ros_msg(const sensor_msgs::msg::Range& msg);
+
 [[nodiscard]] stdr_msgs::msg::RfidSensorMeasurementMsg to_ros_msg(const stdr_simulation::RfidMeasurement& meas);
 [[nodiscard]] stdr_msgs::msg::CO2SensorMeasurementMsg to_ros_msg(const stdr_simulation::CO2Measurement& meas);
 [[nodiscard]] stdr_msgs::msg::SoundSensorMeasurementMsg to_ros_msg(const stdr_simulation::SoundMeasurement& meas);
