@@ -14,6 +14,7 @@ find_package(std_msgs REQUIRED)
 find_package(sensor_msgs REQUIRED)
 find_package(visualization_msgs REQUIRED)
 find_package(tf2 REQUIRED)
+find_package(tf2_geometry_msgs REQUIRED)
 find_package(tf2_ros REQUIRED)
 find_package(tl_expected REQUIRED)
 find_package(Threads REQUIRED)
@@ -44,6 +45,7 @@ ament_target_dependencies(
   stdr_msgs
   stdr_parser
   tf2
+  tf2_geometry_msgs
   tf2_ros)
 
 add_executable(stdr_gui_ros_node src/main.cpp)
@@ -78,6 +80,7 @@ ament_export_dependencies(
   sensor_msgs
   visualization_msgs
   tf2
+  tf2_geometry_msgs
   tf2_ros
   tl_expected)
 
