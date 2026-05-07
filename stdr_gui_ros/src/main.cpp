@@ -15,15 +15,12 @@
 namespace
 {
 
+// Robot spawning is not done by the GUI in ROS2 mode — robots come up via launch files.
 void print_usage(const char* program)
 {
   std::cerr << "Usage: " << program << " [OPTIONS]\n"
             << "Options:\n"
-            << "  --map <path>     Load map YAML file on startup\n"
-            << "  --robot <path>   Load robot YAML file on startup\n"
-            << "  --x <float>      Robot spawn X position (default: 0)\n"
-            << "  --y <float>      Robot spawn Y position (default: 0)\n"
-            << "  --theta <float>  Robot spawn heading in radians (default: 0)\n"
+            << "  --map <path>     Load map YAML file on startup (calls stdr_server LoadMap)\n"
             << "  --help           Show this help message\n";
 }
 
@@ -34,10 +31,6 @@ int main(int argc, char* argv[])
   rclcpp::init(argc, argv);
 
   std::string map_path;
-  std::string robot_path;
-  float spawn_x = 0.0f;
-  float spawn_y = 0.0f;
-  float spawn_theta = 0.0f;
 
   for (int i = 1; i < argc; ++i)
   {
@@ -48,52 +41,15 @@ int main(int argc, char* argv[])
       rclcpp::shutdown();
       return EXIT_SUCCESS;
     }
-    if (arg == "--map" && i + 1 < argc)
+    if (arg == "--map")
     {
+      if (i + 1 >= argc)
+      {
+        std::cerr << "--map requires a path argument.\n";
+        rclcpp::shutdown();
+        return EXIT_FAILURE;
+      }
       map_path = argv[++i];
-    }
-    else if (arg == "--robot" && i + 1 < argc)
-    {
-      robot_path = argv[++i];
-    }
-    else if (arg == "--x" && i + 1 < argc)
-    {
-      try
-      {
-        spawn_x = std::stof(argv[++i]);
-      }
-      catch (const std::exception&)
-      {
-        std::cerr << "Invalid value for --x: " << argv[i] << '\n';
-        rclcpp::shutdown();
-        return EXIT_FAILURE;
-      }
-    }
-    else if (arg == "--y" && i + 1 < argc)
-    {
-      try
-      {
-        spawn_y = std::stof(argv[++i]);
-      }
-      catch (const std::exception&)
-      {
-        std::cerr << "Invalid value for --y: " << argv[i] << '\n';
-        rclcpp::shutdown();
-        return EXIT_FAILURE;
-      }
-    }
-    else if (arg == "--theta" && i + 1 < argc)
-    {
-      try
-      {
-        spawn_theta = std::stof(argv[++i]);
-      }
-      catch (const std::exception&)
-      {
-        std::cerr << "Invalid value for --theta: " << argv[i] << '\n';
-        rclcpp::shutdown();
-        return EXIT_FAILURE;
-      }
     }
     else if (arg.rfind("--ros-args", 0) == 0 || arg == "--")
     {
@@ -109,18 +65,12 @@ int main(int argc, char* argv[])
     }
   }
 
-  // Service calls for startup args are not yet wired. Print a note so the user
-  // knows the args were parsed but won't have any effect yet.
-  if (!map_path.empty() || !robot_path.empty())
-  {
-    std::cout << "[stdr_gui_ros] Note: --map/--robot startup args accepted but "
-                 "service calls are not yet active.\n";
-  }
-
   std::shared_ptr<rclcpp::Node> node = std::make_shared<rclcpp::Node>("stdr_gui");
 
   // Spin the node on a background thread so ROS2 callbacks are processed while
-  // the GUI runs its render loop on the main thread.
+  // the GUI runs its render loop on the main thread. The executor must be live
+  // before load_map is called: Ros2Backend::load_map relies on the external
+  // executor to pump service-discovery and future-completion callbacks.
   rclcpp::executors::SingleThreadedExecutor executor;
   executor.add_node(node);
   std::thread spin_thread([&executor] { executor.spin(); });
@@ -128,6 +78,20 @@ int main(int argc, char* argv[])
   // GuiApp takes unique_ptr ownership; the node is kept alive by the shared_ptr
   // above for the duration of the executor's lifetime.
   std::unique_ptr<stdr_gui_ros::Ros2Backend> backend = std::make_unique<stdr_gui_ros::Ros2Backend>(node);
+
+  if (!map_path.empty())
+  {
+    const tl::expected<void, std::string> load_result = backend->load_map(map_path);
+    if (!load_result)
+    {
+      std::cerr << "Failed to load map: " << load_result.error() << '\n';
+      executor.cancel();
+      spin_thread.join();
+      rclcpp::shutdown();
+      return EXIT_FAILURE;
+    }
+  }
+
   stdr_gui::GuiApp app(std::move(backend));
 
   const tl::expected<void, std::string> result = app.init();
