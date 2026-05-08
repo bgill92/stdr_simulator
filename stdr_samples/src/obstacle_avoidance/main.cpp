@@ -18,18 +18,36 @@
    * Aris Thallas, aris.thallas@gmail.com
    * Chris Zalidis, zalidis@gmail.com
 ******************************************************************************/
-#include "stdr_samples/obstacle_avoidance/obstacle_avoidance.h"
+#include <cstdlib>
+#include <iostream>
+#include <memory>
+#include <string>
+
+#include <rclcpp/rclcpp.hpp>
+
+#include "stdr_samples/obstacle_avoidance/obstacle_avoidance.hpp"
 
 /**
-@brief The main node function
-@param argc [int] Number of input arguments
-@param argv [char] The input arguments
-@return int : 0 for success
+@brief Entry point. Parses robot and laser frame IDs then spins the node.
+@param argc Number of command-line arguments.
+@param argv Command-line argument values.
+@return EXIT_SUCCESS on clean shutdown, EXIT_FAILURE on bad usage.
 **/
 int main(int argc, char** argv)
 {
-  ros::init(argc, argv, "stdr_obstacle_avoidance", ros::init_options::AnonymousName);
-  stdr_samples::ObstacleAvoidance obj(argc, argv);
-  ros::spin();
-  return 0;
+  if (argc != 3)
+  {
+    std::cerr << "Usage: obstacle_avoidance <robot_frame_id> <laser_frame_id>\n";
+    return EXIT_FAILURE;
+  }
+
+  rclcpp::init(argc, argv);
+
+  const std::string robot_frame_id{ argv[1] };
+  const std::string laser_frame_id{ argv[2] };
+
+  rclcpp::spin(std::make_shared<stdr_samples::ObstacleAvoidance>(robot_frame_id, laser_frame_id));
+
+  rclcpp::shutdown();
+  return EXIT_SUCCESS;
 }

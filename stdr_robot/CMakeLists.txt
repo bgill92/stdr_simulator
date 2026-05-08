@@ -2,6 +2,7 @@ cmake_minimum_required(VERSION 3.16)
 project(stdr_robot)
 
 find_package(ament_cmake REQUIRED)
+find_package(ament_index_cpp REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(rclcpp_action REQUIRED)
 find_package(rclcpp_components REQUIRED)
@@ -64,6 +65,18 @@ ament_export_dependencies(
   stdr_simulation
   stdr_parser
   rosidl_default_runtime)
+
+add_executable(robot_spawner src/robot_spawner_main.cpp)
+
+target_compile_features(robot_spawner PUBLIC cxx_std_20)
+set_target_properties(robot_spawner PROPERTIES CXX_EXTENSIONS OFF)
+
+target_link_libraries(
+  robot_spawner
+  PRIVATE ${PROJECT_NAME} stdr_parser::stdr_parser
+          ament_index_cpp::ament_index_cpp ${rclcpp_action_TARGETS})
+
+install(TARGETS robot_spawner RUNTIME DESTINATION lib/${PROJECT_NAME})
 
 if(BUILD_TESTING)
   find_package(ament_cmake_gtest REQUIRED)

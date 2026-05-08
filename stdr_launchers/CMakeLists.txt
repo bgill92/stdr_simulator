@@ -1,9 +1,8 @@
 cmake_minimum_required(VERSION 3.16)
 project(stdr_launchers)
 
-find_package(catkin REQUIRED)
+find_package(ament_cmake REQUIRED)
 
-catkin_package()
+install(DIRECTORY launch rviz DESTINATION share/${PROJECT_NAME})
 
-# Install launch files
-install(DIRECTORY launch rviz DESTINATION ${CATKIN_PACKAGE_SHARE_DESTINATION})
+ament_package()
