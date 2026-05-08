@@ -87,12 +87,23 @@ ament_export_dependencies(
 if(BUILD_TESTING)
   find_package(ament_cmake_gtest REQUIRED)
   find_package(GTest REQUIRED)
+  # PNG::PNG must be found before stdr_server because stdr_server propagates it
+  # as a public link dependency (used by its map loader).
+  find_package(PNG REQUIRED)
+  find_package(stdr_server REQUIRED)
+  find_package(stdr_robot REQUIRED)
 
   ament_add_gtest(test_ros2_backend test/test_ros2_backend.cpp)
   target_link_libraries(test_ros2_backend ${PROJECT_NAME} GTest::gmock_main)
   target_compile_definitions(
     test_ros2_backend
     PRIVATE STDR_RESOURCES_DIR="${CMAKE_CURRENT_SOURCE_DIR}/../stdr_resources")
+
+  ament_add_gtest(test_ros2_backend_integration
+                  test/test_ros2_backend_integration.cpp)
+  target_link_libraries(
+    test_ros2_backend_integration ${PROJECT_NAME} stdr_server::stdr_server
+    stdr_robot::stdr_robot GTest::gmock_main)
 endif()
 
 ament_package()

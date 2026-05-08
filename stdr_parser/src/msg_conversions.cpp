@@ -459,6 +459,18 @@ sensor_msgs::msg::LaserScan to_ros_msg(const stdr_simulation::LaserScan& scan)
   return msg;
 }
 
+stdr_simulation::LaserScan from_ros_msg(const sensor_msgs::msg::LaserScan& msg)
+{
+  stdr_simulation::LaserScan scan;
+  scan.angle_min = static_cast<double>(msg.angle_min);
+  scan.angle_max = static_cast<double>(msg.angle_max);
+  scan.angle_increment = static_cast<double>(msg.angle_increment);
+  scan.range_min = static_cast<double>(msg.range_min);
+  scan.range_max = static_cast<double>(msg.range_max);
+  scan.ranges = msg.ranges;  // Already float.
+  return scan;
+}
+
 sensor_msgs::msg::Range to_ros_sonar_msg(const stdr_simulation::SonarScan& scan,
                                          const stdr_simulation::SonarConfig& config)
 {
@@ -469,6 +481,14 @@ sensor_msgs::msg::Range to_ros_sonar_msg(const stdr_simulation::SonarScan& scan,
   msg.max_range = static_cast<float>(config.max_range);
   msg.range = static_cast<float>(scan.range);
   return msg;
+}
+
+stdr_simulation::SonarScan from_ros_msg(const sensor_msgs::msg::Range& msg)
+{
+  // radiation_type, field_of_view, min_range, and max_range are config metadata
+  // that the forward path encodes from SonarConfig; they are intentionally dropped
+  // here because only the range measurement is being reversed.
+  return stdr_simulation::SonarScan{ static_cast<double>(msg.range) };
 }
 
 stdr_msgs::msg::RfidSensorMeasurementMsg to_ros_msg(const stdr_simulation::RfidMeasurement& meas)

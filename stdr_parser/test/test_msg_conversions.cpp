@@ -500,7 +500,52 @@ TEST(MsgConversions, LaserScanToRosMsg)
   EXPECT_FLOAT_EQ(msg.ranges[2], 3.0f);
 }
 
+// --- LaserScan round-trip (sim → ROS → sim) ---
+
+TEST(MsgConversions, LaserScanRoundTrip)
+{
+  stdr_simulation::LaserScan original;
+  original.angle_min = -1.57f;
+  original.angle_max = 1.57f;
+  original.angle_increment = 0.01f;
+  original.range_min = 0.1f;
+  original.range_max = 10.0f;
+  original.ranges = { 1.0f, 2.5f, 3.75f };
+
+  const sensor_msgs::msg::LaserScan ros_msg = to_ros_msg(original);
+  const stdr_simulation::LaserScan roundtripped = from_ros_msg(ros_msg);
+
+  EXPECT_NEAR(roundtripped.angle_min, original.angle_min, 1e-5);
+  EXPECT_NEAR(roundtripped.angle_max, original.angle_max, 1e-5);
+  EXPECT_NEAR(roundtripped.angle_increment, original.angle_increment, 1e-5);
+  EXPECT_NEAR(roundtripped.range_min, original.range_min, 1e-5);
+  EXPECT_NEAR(roundtripped.range_max, original.range_max, 1e-5);
+  ASSERT_THAT(roundtripped.ranges, SizeIs(3));
+  EXPECT_FLOAT_EQ(roundtripped.ranges[0], 1.0f);
+  EXPECT_FLOAT_EQ(roundtripped.ranges[1], 2.5f);
+  EXPECT_FLOAT_EQ(roundtripped.ranges[2], 3.75f);
+}
+
 // --- SonarScan measurement ---
+
+// One-way conversion: build a Range msg with a known range and verify that
+// from_ros_msg extracts only the range field.  A round-trip test would not
+// work because the forward path encodes config metadata (radiation_type,
+// field_of_view, min_range, max_range) that the reverse converter intentionally
+// drops — the SonarScan type has no fields for that information.
+TEST(MsgConversions, RangeMsgToSonarScan)
+{
+  sensor_msgs::msg::Range msg;
+  msg.radiation_type = sensor_msgs::msg::Range::ULTRASOUND;
+  msg.field_of_view = 0.5f;
+  msg.min_range = 0.2f;
+  msg.max_range = 5.0f;
+  msg.range = 3.14f;
+
+  const stdr_simulation::SonarScan scan = from_ros_msg(msg);
+
+  EXPECT_NEAR(scan.range, static_cast<double>(msg.range), 1e-6);
+}
 
 TEST(MsgConversions, SonarScanToRosMsg)
 {
