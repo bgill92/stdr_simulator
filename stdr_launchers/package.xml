@@ -1,29 +1,23 @@
 <?xml version="1.0"?>
-<package format="2">
- <name>stdr_launchers</name>
-  <version>0.3.2</version>
-  <description>Launch files, to easily bringup server, robots, guis</description>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>stdr_launchers</name>
+  <version>1.0.0</version>
+  <description>ROS2 launch files for the STDR Simulator.</description>
 
-  <maintainer email="zalidis@gmail.com">Chris Zalidis</maintainer>
+  <maintainer email="bilal@todo.com">Bilal Gill</maintainer>
+  <license>GPL-3.0-only</license>
 
-  <license>GPLv3</license>
-
-  <url type="website">http://stdr-simulator-ros-pkg.github.io</url>
-  <url type="bugtracker">https://github.com/stdr-simulator-ros-pkg/stdr_simulator/issues</url>
-  <url type="repository">https://github.com/stdr-simulator-ros-pkg/stdr_simulator</url>
-
-  <author>Chris Zalidis</author>
-
-  <buildtool_depend>catkin</buildtool_depend>
+  <buildtool_depend>ament_cmake</buildtool_depend>
 
   <exec_depend>stdr_server</exec_depend>
   <exec_depend>stdr_robot</exec_depend>
-  <exec_depend>stdr_gui</exec_depend>
+  <exec_depend>stdr_gui_ros</exec_depend>
   <exec_depend>stdr_resources</exec_depend>
-  <exec_depend>rviz</exec_depend>
+  <exec_depend>rviz2</exec_depend>
+  <exec_depend>tf2_ros</exec_depend>
 
-
-  <!-- The export tag contains other, unspecified, tags -->
   <export>
+    <build_type>ament_cmake</build_type>
   </export>
 </package>

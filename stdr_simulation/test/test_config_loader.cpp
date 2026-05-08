@@ -231,5 +231,40 @@ TEST(LoadRobotConfig, FootprintPointsBareKeyParsed)
   EXPECT_DOUBLE_EQ(config->footprint.points[1].x, -0.3);
 }
 
+// ---- default frame_id assignment ---------------------------------------------
+
+// A sensor without frame_id in the YAML gets a stable positional default so
+// that publishing on <robot_name>/<frame_id> never produces an empty suffix.
+TEST(LoadRobotConfig, SensorWithoutFrameIdGetsDefault)
+{
+  const tl::expected<RobotConfig, std::string> config =
+      load_robot_config(fixture("robot_frame_id.yaml"), std::string(FIXTURE_DIR));
+  ASSERT_TRUE(config.has_value()) << config.error();
+  ASSERT_THAT(config->laser_sensors, testing::SizeIs(2));
+  EXPECT_EQ(config->laser_sensors[0].frame_id, "laser_0");
+}
+
+// A sensor that explicitly sets frame_id keeps its user-supplied value.
+TEST(LoadRobotConfig, SensorWithExplicitFrameIdIsPreserved)
+{
+  const tl::expected<RobotConfig, std::string> config =
+      load_robot_config(fixture("robot_frame_id.yaml"), std::string(FIXTURE_DIR));
+  ASSERT_TRUE(config.has_value()) << config.error();
+  ASSERT_THAT(config->laser_sensors, testing::SizeIs(2));
+  EXPECT_EQ(config->laser_sensors[1].frame_id, "my_laser");
+}
+
+// The auto-index always increments so positional ordering is stable even when
+// some sensors in the list have explicit names.
+TEST(LoadRobotConfig, SonarAutoIndexIsStableAcrossMixedNames)
+{
+  const tl::expected<RobotConfig, std::string> config =
+      load_robot_config(fixture("robot_frame_id.yaml"), std::string(FIXTURE_DIR));
+  ASSERT_TRUE(config.has_value()) << config.error();
+  ASSERT_THAT(config->sonar_sensors, testing::SizeIs(2));
+  EXPECT_EQ(config->sonar_sensors[0].frame_id, "named_sonar");
+  EXPECT_EQ(config->sonar_sensors[1].frame_id, "sonar_1");
+}
+
 }  // namespace
 }  // namespace stdr_simulation

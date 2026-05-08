@@ -142,17 +142,30 @@ StdrRobotNode::StdrRobotNode(const rclcpp::NodeOptions& options) : rclcpp::Node(
   // RegisterRobot action client.
   register_client_ = rclcpp_action::create_client<RegisterRobot>(this, "stdr_server/register_robot");
 
-  // Initiate registration asynchronously.
-  RegisterRobot::Goal goal;
-  goal.name = robot_name_;
-
-  rclcpp_action::Client<RegisterRobot>::SendGoalOptions send_goal_options;
-  send_goal_options.result_callback =
-      [this](const rclcpp_action::ClientGoalHandle<RegisterRobot>::WrappedResult& result) {
-        on_register_result(result);
-      };
-
-  register_client_->async_send_goal(goal, send_goal_options);
+  // Poll for the action server without blocking the executor thread. DDS
+  // discovery is async, but other callbacks (sim timer, subscriptions) need
+  // the thread — a blocking wait_for_action_server would starve them.
+  constexpr int kMaxRegisterAttempts = 100;  // 100 × 100 ms = 10 s total budget
+  register_kickoff_timer_ = create_wall_timer(std::chrono::milliseconds(100), [this]() {
+    ++register_attempts_;
+    if (!register_client_->wait_for_action_server(std::chrono::seconds(0)))
+    {
+      if (register_attempts_ >= kMaxRegisterAttempts)
+      {
+        RCLCPP_ERROR(get_logger(), "register_robot action server unavailable after 10 s");
+        register_kickoff_timer_->cancel();
+      }
+      return;
+    }
+    register_kickoff_timer_->cancel();
+    RegisterRobot::Goal goal;
+    goal.name = robot_name_;
+    rclcpp_action::Client<RegisterRobot>::SendGoalOptions opts;
+    opts.result_callback = [this](const rclcpp_action::ClientGoalHandle<RegisterRobot>::WrappedResult& result) {
+      on_register_result(result);
+    };
+    register_client_->async_send_goal(goal, opts);
+  });
 
   RCLCPP_INFO(get_logger(), "STDR Robot node '%s' created — awaiting registration", robot_name_.c_str());
 }

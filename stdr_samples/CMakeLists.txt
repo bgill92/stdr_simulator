@@ -1,41 +1,24 @@
 cmake_minimum_required(VERSION 3.16)
 project(stdr_samples)
 
-find_package(
-  catkin REQUIRED
-  COMPONENTS roslib
-             roscpp
-             tf
-             stdr_msgs
-             geometry_msgs
-             sensor_msgs
-             nav_msgs)
+find_package(ament_cmake REQUIRED)
+find_package(rclcpp REQUIRED)
+find_package(geometry_msgs REQUIRED)
+find_package(sensor_msgs REQUIRED)
 
-set(CMAKE_BUILD_TYPE Release)
+add_executable(obstacle_avoidance src/obstacle_avoidance/main.cpp
+                                  src/obstacle_avoidance/obstacle_avoidance.cpp)
 
-include_directories(include ${catkin_INCLUDE_DIRS})
+target_compile_features(obstacle_avoidance PRIVATE cxx_std_20)
+set_target_properties(obstacle_avoidance PROPERTIES CXX_EXTENSIONS OFF)
 
-catkin_package(
-  INCLUDE_DIRS
-  include
-  LIBRARIES
-  CATKIN_DEPENDS
-  roslib
-  roscpp
-  tf
-  stdr_msgs
-  geometry_msgs
-  sensor_msgs
-  nav_msgs)
+target_include_directories(obstacle_avoidance
+                           PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
 
-# ###################### Obstacle avoidance ##################################
-add_executable(
-  stdr_obstacle_avoidance src/obstacle_avoidance/main.cpp
-                          src/obstacle_avoidance/obstacle_avoidance.cpp)
-add_dependencies(stdr_obstacle_avoidance ${stdr_msgs_EXPORTED_TARGETS}
-)# wait for stdr_msgs to be build
-target_link_libraries(stdr_obstacle_avoidance ${catkin_LIBRARIES})
+target_link_libraries(
+  obstacle_avoidance PRIVATE rclcpp::rclcpp ${geometry_msgs_TARGETS}
+                             ${sensor_msgs_TARGETS})
 
-# Install excecutables
-install(TARGETS stdr_obstacle_avoidance
-        RUNTIME DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION})
+install(TARGETS obstacle_avoidance RUNTIME DESTINATION lib/${PROJECT_NAME})
+
+ament_package()
