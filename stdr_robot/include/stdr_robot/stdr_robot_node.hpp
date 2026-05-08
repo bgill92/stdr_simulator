@@ -98,6 +98,7 @@ private:
   stdr_simulation::RobotConfig config_;
   std::optional<stdr_simulation::OccupancyGrid> map_;
   bool registered_{ false };
+  int register_attempts_{ 0 };
 
   // Cached environment sources.
   std::vector<stdr_simulation::RfidTag> rfid_tags_;
@@ -140,8 +141,9 @@ private:
   // --- Services ---
   rclcpp::Service<stdr_msgs::srv::MoveRobot>::SharedPtr replace_srv_;
 
-  // --- Timer ---
+  // --- Timers ---
   rclcpp::TimerBase::SharedPtr sim_timer_;
+  rclcpp::TimerBase::SharedPtr register_kickoff_timer_;
 
   // --- Action client ---
   rclcpp_action::Client<RegisterRobot>::SharedPtr register_client_;

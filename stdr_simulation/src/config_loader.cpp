@@ -463,6 +463,32 @@ tl::expected<RobotConfig, std::string> load_robot_config(const std::string& yaml
         config.sound_sensors.push_back(std::move(*sound));
       }
     }
+
+    // Assign stable positional default frame_ids to any sensor that did not
+    // specify one in the YAML.  The topic published in ROS2 mode is
+    // <robot_name>/<frame_id>, so an empty frame_id would produce an invalid
+    // trailing-slash topic name and crash rclcpp.  We always increment the
+    // index even when the user supplied an explicit name so that auto-named
+    // sensors are stable across runs regardless of which sensors are named.
+    const auto assign_default_frame_id = [](auto& sensors, const std::string& prefix) {
+      std::size_t auto_index = 0;
+      for (auto& cfg : sensors)
+      {
+        if (cfg.frame_id.empty())
+        {
+          cfg.frame_id = prefix + std::to_string(auto_index);
+        }
+        ++auto_index;
+      }
+    };
+
+    assign_default_frame_id(config.laser_sensors, "laser_");
+    assign_default_frame_id(config.sonar_sensors, "sonar_");
+    assign_default_frame_id(config.rfid_sensors, "rfid_reader_");
+    assign_default_frame_id(config.co2_sensors, "co2_sensor_");
+    assign_default_frame_id(config.thermal_sensors, "thermal_sensor_");
+    assign_default_frame_id(config.sound_sensors, "sound_sensor_");
+
     return config;
   }
   catch (const YAML::Exception& e)

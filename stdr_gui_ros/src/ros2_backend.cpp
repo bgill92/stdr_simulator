@@ -279,7 +279,7 @@ std::shared_ptr<const stdr_gui::SimulationSnapshot> Ros2Backend::get_snapshot() 
   // The GUI uses `running` only for the play/pause indicator. In ROS2 mode
   // there is no central lifecycle, so we approximate: if any robots are active
   // the simulation is considered "running".
-  snapshot.elapsed_time = 0.0;
+  snapshot.elapsed_time = sim_time();
   snapshot.running = !snapshot.robots.empty();
 
   return std::make_shared<stdr_gui::SimulationSnapshot>(std::move(snapshot));
