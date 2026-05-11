@@ -104,6 +104,13 @@ if(BUILD_TESTING)
   target_link_libraries(
     test_ros2_backend_integration ${PROJECT_NAME} stdr_server::stdr_server
     stdr_robot::stdr_robot GTest::gmock_main)
+
+  ament_add_gtest(test_ros2_e2e test/test_ros2_e2e.cpp TIMEOUT 60)
+  target_link_libraries(test_ros2_e2e ${PROJECT_NAME} stdr_server::stdr_server
+                        stdr_robot::stdr_robot GTest::gmock_main)
+  target_compile_definitions(
+    test_ros2_e2e
+    PRIVATE STDR_RESOURCES_DIR="${CMAKE_CURRENT_SOURCE_DIR}/../stdr_resources")
 endif()
 
 ament_package()
