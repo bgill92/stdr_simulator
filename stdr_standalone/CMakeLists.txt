@@ -78,6 +78,13 @@ if(BUILD_TESTING)
     test_sim_view
     PRIVATE STDR_RESOURCES_DIR="${CMAKE_CURRENT_SOURCE_DIR}/../stdr_resources"
             STDR_TEST_DIR="${CMAKE_CURRENT_SOURCE_DIR}/test")
+
+  ament_add_gtest(test_standalone_e2e test/test_standalone_e2e.cpp)
+  target_link_libraries(test_standalone_e2e ${PROJECT_NAME} GTest::gmock)
+  target_compile_definitions(
+    test_standalone_e2e
+    PRIVATE STDR_RESOURCES_DIR="${CMAKE_CURRENT_SOURCE_DIR}/../stdr_resources"
+            STDR_TEST_DIR="${CMAKE_CURRENT_SOURCE_DIR}/test")
 endif()
 
 ament_package()
