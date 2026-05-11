@@ -1,6 +1,7 @@
 <?xml version="1.0"?>
-<package format="2">
-  <name>stdr_simulator</name> <!-- This is a meta package! -->
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>stdr_simulator</name>
   <version>0.3.2</version>
   <description>A simple, flexible and scalable 2D multi-robot simulator.</description>
 
@@ -14,18 +15,21 @@
 
   <author>Manos Tsardoulias, Chris Zalidis, Aris Thallas</author>
 
-  <buildtool_depend>catkin</buildtool_depend>
+  <buildtool_depend>ament_cmake</buildtool_depend>
 
-  <exec_depend>stdr_msgs</exec_depend>
-  <exec_depend>stdr_server</exec_depend>
-  <exec_depend>stdr_robot</exec_depend>
   <exec_depend>stdr_gui</exec_depend>
+  <exec_depend>stdr_gui_ros</exec_depend>
   <exec_depend>stdr_launchers</exec_depend>
-  <exec_depend>stdr_resources</exec_depend>
-  <exec_depend>stdr_samples</exec_depend>
+  <exec_depend>stdr_msgs</exec_depend>
   <exec_depend>stdr_parser</exec_depend>
+  <exec_depend>stdr_resources</exec_depend>
+  <exec_depend>stdr_robot</exec_depend>
+  <exec_depend>stdr_samples</exec_depend>
+  <exec_depend>stdr_server</exec_depend>
+  <exec_depend>stdr_simulation</exec_depend>
+  <exec_depend>stdr_standalone</exec_depend>
 
   <export>
-    <metapackage/>
+    <build_type>ament_cmake</build_type>
   </export>
 </package>
