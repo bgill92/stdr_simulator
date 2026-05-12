@@ -23,6 +23,24 @@ using ::testing::Gt;
 using ::testing::SizeIs;
 using namespace std::chrono_literals;
 
+// All test suites in this binary share one rclcpp::init / rclcpp::shutdown pair
+// to avoid conflicts between fixtures that each declare SetUpTestSuite.
+class RclcppEnvironment : public ::testing::Environment
+{
+public:
+  void SetUp() override
+  {
+    rclcpp::init(0, nullptr);
+  }
+  void TearDown() override
+  {
+    rclcpp::shutdown();
+  }
+};
+
+// NOLINTNEXTLINE(cert-err58-cpp) — safe: AddGlobalTestEnvironment is called before main test execution
+const ::testing::Environment* const kRclcppEnv = ::testing::AddGlobalTestEnvironment(new RclcppEnvironment);
+
 // Spin the executor until predicate returns true or the timeout elapses.
 [[nodiscard]] bool spin_until(rclcpp::executors::SingleThreadedExecutor& executor,
                               const std::function<bool()>& predicate, std::chrono::milliseconds timeout)
@@ -44,16 +62,6 @@ using namespace std::chrono_literals;
 class RobotNodeTest : public ::testing::Test
 {
 protected:
-  static void SetUpTestSuite()
-  {
-    rclcpp::init(0, nullptr);
-  }
-
-  static void TearDownTestSuite()
-  {
-    rclcpp::shutdown();
-  }
-
   RobotNodeTest()
   {
     rclcpp::NodeOptions options;
@@ -92,6 +100,45 @@ protected:
 TEST_F(RobotNodeTest, CreatesSuccessfully)
 {
   EXPECT_NE(node_, nullptr);
+}
+
+// ─── Node name derivation from robot_name override ──────────────────────────
+
+// When robot_name is passed as a parameter override, the node must adopt it
+// as the ROS node name so each robot surfaces as a distinct node rather than
+// all competing for the same /stdr_robot name.
+TEST(RobotNodeNameTest, NodeNameDerivedFromRobotNameOverride)
+{
+  rclcpp::NodeOptions options;
+  options.append_parameter_override("robot_name", "robot7");
+  const std::shared_ptr<StdrRobotNode> node = std::make_shared<StdrRobotNode>(options);
+  EXPECT_EQ(std::string(node->get_name()), std::string("robot7"));
+}
+
+// When no robot_name override is present the node falls back to "stdr_robot".
+TEST(RobotNodeNameTest, FallsBackToStdrRobotWhenNoOverride)
+{
+  const std::shared_ptr<StdrRobotNode> node = std::make_shared<StdrRobotNode>(rclcpp::NodeOptions());
+  EXPECT_EQ(std::string(node->get_name()), std::string("stdr_robot"));
+}
+
+// The spawn server guarantees valid robot names; a digit-leading name is a
+// contract violation that should fail loudly rather than silently producing
+// broken topic names (e.g. "1robot/cmd_vel" which ROS2 rejects at runtime).
+TEST(RobotNodeNameTest, ThrowsOnDigitLeadingName)
+{
+  rclcpp::NodeOptions options;
+  options.append_parameter_override("robot_name", "1robot");
+  EXPECT_THROW((stdr_robot::StdrRobotNode(options)), std::invalid_argument);
+}
+
+// A slash in robot_name is equally invalid — ROS2 topic names built from it
+// would be misrouted as nested namespaces rather than rejected outright.
+TEST(RobotNodeNameTest, ThrowsOnInvalidCharactersInName)
+{
+  rclcpp::NodeOptions options;
+  options.append_parameter_override("robot_name", "robot/0");
+  EXPECT_THROW((stdr_robot::StdrRobotNode(options)), std::invalid_argument);
 }
 
 // ─── Subscriptions ──────────────────────────────────────────────────────────

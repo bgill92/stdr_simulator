@@ -720,6 +720,58 @@ TEST(StandaloneBackendRates, OdomRateGetterReturnsSetValue)
   EXPECT_DOUBLE_EQ(backend.get_laser_rate(name, 42), 0.0);
 }
 
+// ── Effective TF / odom rates via engine ────────────────────────────────────
+
+// With no robots the backend falls back to the formula-derived value.
+// step_dt=0.1, tf_rate=5 Hz → period_ticks=2 → effective=5 Hz.
+TEST(StandaloneBackendRates, EffectiveTfRateNoRobotsMatchesFormula)
+{
+  StandaloneBackend backend;
+  backend.set_step_dt(0.1);
+  backend.set_tf_rate(5.0);
+
+  EXPECT_DOUBLE_EQ(backend.get_effective_tf_rate(), 5.0);
+}
+
+// With a spawned robot the backend queries the engine's scheduler.
+// step_dt=0.1, tf_rate=5 Hz → period_ticks=2 → effective=5 Hz.
+TEST(StandaloneBackendRates, EffectiveTfRateReportsEngineValue)
+{
+  StandaloneBackend backend;
+  backend.set_step_dt(0.1);
+  backend.set_tf_rate(5.0);
+
+  // Spawn after setting rates so the scheduler sees the configured period.
+  std::ignore = backend.spawn_robot(robot_path(), { 1.0, 1.0, 0.0 }).value();
+
+  // Engine reports the same value as the formula when the target fits an
+  // integer multiple of step_dt.
+  EXPECT_DOUBLE_EQ(backend.get_effective_tf_rate(), 5.0);
+}
+
+// With no robots the backend falls back to the formula-derived value.
+// step_dt=0.1, odom_rate=10 Hz → period_ticks=1 → effective=10 Hz.
+TEST(StandaloneBackendRates, EffectiveOdomRateNoRobotsMatchesFormula)
+{
+  StandaloneBackend backend;
+  backend.set_step_dt(0.1);
+  backend.set_odom_rate(10.0);
+
+  EXPECT_DOUBLE_EQ(backend.get_effective_odom_rate(), 10.0);
+}
+
+// With a spawned robot the backend queries the engine's scheduler.
+TEST(StandaloneBackendRates, EffectiveOdomRateReportsEngineValue)
+{
+  StandaloneBackend backend;
+  backend.set_step_dt(0.1);
+  backend.set_odom_rate(10.0);
+
+  std::ignore = backend.spawn_robot(robot_path(), { 1.0, 1.0, 0.0 }).value();
+
+  EXPECT_DOUBLE_EQ(backend.get_effective_odom_rate(), 10.0);
+}
+
 // With laser frequency=5 Hz and dt=0.1, the laser should fire ~10 times in 20 ticks
 // (2 s sim time).  We measure via laser_publish_count with a loose upper bound to
 // tolerate wall-clock scheduling jitter.
@@ -746,6 +798,14 @@ TEST(StandaloneBackendRates, LaserFiresAtConfiguredRate)
   // 20 ticks ÷ period 2 = 10 firings.  Allow ±2 for timing imprecision.
   EXPECT_GE(count, 8u);
   EXPECT_LE(count, 12u);
+}
+
+// ── publishes_ros_topics ─────────────────────────────────────────────────────
+
+TEST(StandaloneBackendPublishesRosTopics, ReturnsFalse)
+{
+  StandaloneBackend backend;
+  EXPECT_FALSE(backend.publishes_ros_topics());
 }
 
 }  // namespace

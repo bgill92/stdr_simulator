@@ -37,10 +37,12 @@ def generate_launch_description() -> LaunchDescription:
 
     # robot_spawner waits up to 30 s for the action server, so ordering
     # within the LaunchDescription is sufficient — no explicit delay needed.
+    # name= is intentionally omitted: the process creates two nodes
+    # (robot_spawner_client and StdrRobotNode) and a launch-side name= remap
+    # would alias both to the same name, causing the second registration to fail.
     robot_spawner = Node(
         package="stdr_robot",
         executable="robot_spawner",
-        name="robot_spawner",
         output="screen",
         arguments=["--description", robot_yaml, "--x", "1", "--y", "2", "--theta", "0"],
     )

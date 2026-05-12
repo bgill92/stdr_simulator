@@ -11,6 +11,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cmath>
 #include <cstdlib>
 #include <filesystem>
 #include <thread>
@@ -163,6 +164,52 @@ double StandaloneBackend::get_sonar_rate(const std::string& robot_id, std::size_
 {
   const std::lock_guard<std::mutex> lock(sim_mutex_);
   return engine_.effective_sensor_rate(robot_id, stdr_simulation::StreamKind::Sonar, sensor_index);
+}
+
+double StandaloneBackend::get_effective_tf_rate() const
+{
+  // Delegate to the engine so the value reflects the actual scheduler period
+  // for the first robot.  If no robots are registered the engine returns 0.0,
+  // so fall through to the base-class default that derives the value from the
+  // configured target rate instead — this keeps the display useful even before
+  // any robot is spawned.
+  const std::lock_guard<std::mutex> lock(sim_mutex_);
+  const std::vector<std::string> names = world_model_.robot_names();
+  if (!names.empty())
+  {
+    return engine_.effective_tf_rate(names.front());
+  }
+  // Compute inline from the stored target and step_dt rather than going
+  // through the base-class virtual dispatch.
+  const double target = tf_rate_.load(std::memory_order_relaxed);
+  const double dt = step_dt_.load(std::memory_order_relaxed);
+  if (target <= 0.0 || dt <= 0.0)
+  {
+    return 0.0;
+  }
+  const double raw_period = 1.0 / (target * dt);
+  const std::size_t period_ticks = std::max<std::size_t>(1, static_cast<std::size_t>(std::round(raw_period)));
+  return 1.0 / (static_cast<double>(period_ticks) * dt);
+}
+
+double StandaloneBackend::get_effective_odom_rate() const
+{
+  // Same pattern as get_effective_tf_rate() above.
+  const std::lock_guard<std::mutex> lock(sim_mutex_);
+  const std::vector<std::string> names = world_model_.robot_names();
+  if (!names.empty())
+  {
+    return engine_.effective_odom_rate(names.front());
+  }
+  const double target = odom_rate_.load(std::memory_order_relaxed);
+  const double dt = step_dt_.load(std::memory_order_relaxed);
+  if (target <= 0.0 || dt <= 0.0)
+  {
+    return 0.0;
+  }
+  const double raw_period = 1.0 / (target * dt);
+  const std::size_t period_ticks = std::max<std::size_t>(1, static_cast<std::size_t>(std::round(raw_period)));
+  return 1.0 / (static_cast<double>(period_ticks) * dt);
 }
 
 void StandaloneBackend::set_robot_pose(const std::string& name, const stdr_simulation::Pose2D& pose)

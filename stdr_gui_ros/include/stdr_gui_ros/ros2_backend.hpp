@@ -9,6 +9,7 @@
 #include <geometry_msgs/msg/twist.hpp>
 #include <nav_msgs/msg/occupancy_grid.hpp>
 #include <nav_msgs/msg/odometry.hpp>
+#include <rclcpp/parameter_event_handler.hpp>
 #include <rclcpp/rclcpp.hpp>
 #include <sensor_msgs/msg/laser_scan.hpp>
 #include <sensor_msgs/msg/range.hpp>
@@ -94,6 +95,12 @@ public:
    *  the Plot Panel can use as a time axis — matching the intent of
    *  StandaloneBackend's monotonic elapsed_time_ accumulator. */
   [[nodiscard]] double sim_time() const override;
+
+  /** @brief Always true — robot nodes publish TF and odometry in ROS2 mode. */
+  [[nodiscard]] bool publishes_ros_topics() const override
+  {
+    return true;
+  }
 
 private:
   void push_message(std::string msg);
@@ -183,6 +190,16 @@ private:
   // Guarded by snapshot_mutex_. Mutated in on_active_robots(); snapshotted in propagate_parameter().
   std::unordered_map<std::string, rclcpp::AsyncParametersClient::SharedPtr> param_clients_;
 
+  // Shared ParameterEventHandler that listens for external parameter changes on
+  // all robot nodes.  A single handler instance can hold subscriptions for many
+  // remote nodes.  Created once in the constructor.
+  std::shared_ptr<rclcpp::ParameterEventHandler> param_event_handler_;
+
+  // Per-robot callback handles for sim_step_dt / tf_rate / odom_rate.  Stored
+  // so they can be destroyed (removing the subscription) when a robot disappears.
+  // Guarded by snapshot_mutex_; populated/erased in on_active_robots().
+  std::unordered_map<std::string, std::vector<rclcpp::ParameterCallbackHandle::SharedPtr>> param_event_subs_;
+
   // ── Sensor rings and latest snapshots (sensor_ring_mutex_) ────────────────
   //
   // Lock discipline in on_active_robots() — four phases, never two locks at once:
@@ -191,8 +208,9 @@ private:
   //     state; no mutex is needed.
   //   Phase 2 (sensor_ring_mutex_ only): erase latest_laser_, laser_rings_,
   //     latest_sonar_, and sonar_rings_ entries for robots that disappeared.
-  //   Phase 3 (snapshot_mutex_ only): update robot_states_, odom_subs_, and
-  //     other snapshot state for the new robot set.
+  //   Phase 3 (snapshot_mutex_ only): update robot_states_, odom_subs_,
+  //     param_clients_, param_event_subs_, and other snapshot state for the
+  //     new robot set.  add_parameter_callback calls also happen here.
   //   Phase 4 (no lock): create new laser and sonar subscriptions on the
   //     executor thread.
   //

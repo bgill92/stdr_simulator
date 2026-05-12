@@ -46,6 +46,8 @@ public:
   [[nodiscard]] double get_odom_rate() const override;
   [[nodiscard]] double get_laser_rate(const std::string& robot_id, std::size_t sensor_index) const override;
   [[nodiscard]] double get_sonar_rate(const std::string& robot_id, std::size_t sensor_index) const override;
+  [[nodiscard]] double get_effective_tf_rate() const override;
+  [[nodiscard]] double get_effective_odom_rate() const override;
 
   /** @brief Number of times the laser sensor identified by @p key has been published.
    *

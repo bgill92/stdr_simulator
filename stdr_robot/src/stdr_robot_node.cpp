@@ -7,8 +7,10 @@
 #include <rcl_interfaces/msg/floating_point_range.hpp>
 #include <rcl_interfaces/msg/parameter_descriptor.hpp>
 
+#include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <stdexcept>
 #include <string>
 
 namespace stdr_robot
@@ -16,6 +18,54 @@ namespace stdr_robot
 
 namespace
 {
+
+/**
+ * @brief Extract the node name from NodeOptions parameter overrides.
+ *
+ * When robot_spawner passes `robot_name` as a parameter override, we use
+ * it as the ROS node name so each spawned robot surfaces as its own node
+ * (e.g. /robot0, /robot1).  This avoids the name-collision that occurs
+ * when the launch-side `name=` remap applies `__node:=robot_spawner` to
+ * the whole process, which would cause both the action-client node and
+ * this node to compete for the same name.
+ *
+ * Valid ROS2 node names contain only alphanumerics and underscores and must
+ * not begin with a digit.  If the override is absent or empty we fall back
+ * to "stdr_robot" to preserve standalone and test-fixture usage.  Any
+ * non-empty but invalid name is a contract violation by the caller —
+ * @throws std::invalid_argument with a descriptive message so the failure is
+ * loud and diagnosable rather than silently producing broken topic names.
+ */
+[[nodiscard]] std::string node_name_from_options(const rclcpp::NodeOptions& options)
+{
+  for (const rclcpp::Parameter& p : options.parameter_overrides())
+  {
+    if (p.get_name() == "robot_name" && p.get_type() == rclcpp::ParameterType::PARAMETER_STRING)
+    {
+      const std::string val = p.as_string();
+      if (val.empty())
+      {
+        break;
+      }
+      // ROS2 node names must not begin with a digit.
+      if (std::isdigit(static_cast<unsigned char>(val[0])))
+      {
+        throw std::invalid_argument("robot_name '" + val +
+                                    "' starts with a digit, which is not a valid ROS2 node name.");
+      }
+      // Accept only alphanumeric characters and underscores — the minimal safe
+      // subset of valid ROS2 node names for the robot names we generate.
+      const bool valid =
+          std::all_of(val.begin(), val.end(), [](unsigned char c) { return std::isalnum(c) || c == '_'; });
+      if (!valid)
+      {
+        throw std::invalid_argument("robot_name '" + val + "' contains invalid characters for a ROS2 node name.");
+      }
+      return val;
+    }
+  }
+  return "stdr_robot";
+}
 
 /** Convert a yaw angle to a ROS quaternion message. */
 [[nodiscard]] geometry_msgs::msg::Quaternion yaw_to_quaternion(double yaw)
@@ -109,7 +159,7 @@ void create_sensor_publishers_and_tf(rclcpp::Node& node, const std::vector<Confi
 // ─── Constructor ────────────────────────────────────────────────────────────
 
 StdrRobotNode::StdrRobotNode(const rclcpp::NodeOptions& options)
-  : rclcpp::Node("stdr_robot", options)
+  : rclcpp::Node(node_name_from_options(options), options)
   , scheduler_(stdr_simulation::kDefaultStepDt)  // placeholder; overwritten below once param is read
 {
   declare_parameter<std::string>("robot_name", "");

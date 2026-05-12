@@ -20,6 +20,23 @@ void RobotInfoPanel::render(const SimulationSnapshot& snapshot, SimulatorBackend
     return;
   }
 
+  // Sim / TF / odom rate status block — global, not per-robot.
+  // Sim step is always shown; TF and odom rows are gated on the backend because
+  // standalone mode has no ROS publishers and those rates are meaningless there.
+  const double step_dt = backend.get_step_dt();
+  const double sim_hz = step_dt > 0.0 ? 1.0 / step_dt : 0.0;
+  ImGui::Text("Sim step: %.2f s (%.1f Hz)", step_dt, sim_hz);
+  if (backend.publishes_ros_topics())
+  {
+    const double tf_target = backend.get_tf_rate();
+    const double tf_eff = backend.get_effective_tf_rate();
+    ImGui::Text("TF: %.1f Hz (eff. %.1f Hz)", tf_target, tf_eff);
+    const double odom_target = backend.get_odom_rate();
+    const double odom_eff = backend.get_effective_odom_rate();
+    ImGui::Text("Odom: %.1f Hz (eff. %.1f Hz)", odom_target, odom_eff);
+  }
+  ImGui::Separator();
+
   for (const stdr_simulation::world::RobotState& robot : snapshot.robots)
   {
     const stdr_simulation::RobotSensorData* sensor_data = nullptr;
@@ -84,6 +101,43 @@ void RobotInfoPanel::render_robot_entry(const stdr_simulation::world::RobotState
   ImGui::Text("Lasers: %zu  Sonars: %zu  RFID: %zu  CO2: %zu  Thermal: %zu  Sound: %zu",
               robot.config.laser_sensors.size(), robot.config.sonar_sensors.size(), robot.config.rfid_sensors.size(),
               robot.config.co2_sensors.size(), robot.config.thermal_sensors.size(), robot.config.sound_sensors.size());
+
+  // Per-sensor rate summary — only shown when the backend provides non-zero
+  // values (i.e. StandaloneBackend). Ros2Backend does not expose per-sensor
+  // rate getters; their defaults return 0.
+  // TF/odom effective rates are computed from the stored target rate and step_dt.
+  {
+    const std::string tree_label = "Sensor rates##" + robot.name;
+    if (ImGui::TreeNode(tree_label.c_str()))
+    {
+      bool any_shown = false;
+      // Per-sensor rate getters currently exist only for laser and sonar.
+      // Other sensor types (rfid/co2/thermal/sound) fire at the global sim step.
+      for (std::size_t i = 0; i < robot.config.laser_sensors.size(); ++i)
+      {
+        const double rate = backend.get_laser_rate(robot.name, i);
+        if (rate > 0.0)
+        {
+          ImGui::Text("Laser[%zu]: %.1f Hz", i, rate);
+          any_shown = true;
+        }
+      }
+      for (std::size_t i = 0; i < robot.config.sonar_sensors.size(); ++i)
+      {
+        const double rate = backend.get_sonar_rate(robot.name, i);
+        if (rate > 0.0)
+        {
+          ImGui::Text("Sonar[%zu]: %.1f Hz", i, rate);
+          any_shown = true;
+        }
+      }
+      if (!any_shown)
+      {
+        ImGui::TextUnformatted("No rate data available.");
+      }
+      ImGui::TreePop();
+    }
+  }
 
   // Toggle sensor visualization on the map.
   bool show = show_sensors_.contains(robot.name);
@@ -181,20 +235,31 @@ void RobotInfoPanel::render_robot_entry(const stdr_simulation::world::RobotState
   {
     ImGui::Separator();
 
-    if (!sensor_data->laser_scans.empty())
+    // Guard each slot with an emptiness check: after Group 1 pre-sizing, slots
+    // are always allocated at spawn time but ranges/values are zero until the
+    // first map-assisted physics step produces real measurements.
+    for (std::size_t i = 0; i < sensor_data->laser_scans.size(); ++i)
     {
-      for (std::size_t i = 0; i < sensor_data->laser_scans.size(); ++i)
+      const stdr_simulation::LaserScan& scan = sensor_data->laser_scans[i];
+      if (scan.ranges.empty())
       {
-        ImGui::Text("Laser[%zu]: %zu rays", i, sensor_data->laser_scans[i].ranges.size());
+        continue;
       }
+      ImGui::Text("Laser[%zu]: %zu rays", i, scan.ranges.size());
     }
 
-    if (!sensor_data->sonar_scans.empty())
+    for (std::size_t i = 0; i < sensor_data->sonar_scans.size(); ++i)
     {
-      for (std::size_t i = 0; i < sensor_data->sonar_scans.size(); ++i)
+      const stdr_simulation::SonarScan& sonar = sensor_data->sonar_scans[i];
+      // SonarScan has no "no-measurement" flag; range==0 is used as a proxy for
+      // "slot pre-sized but no scan produced yet". This also suppresses
+      // legitimate readings at exactly 0 m, which is acceptable since real
+      // sonar physics enforce a positive min_range.
+      if (sonar.range <= 0.0)
       {
-        ImGui::Text("Sonar[%zu]: %.3f m", i, sensor_data->sonar_scans[i].range);
+        continue;
       }
+      ImGui::Text("Sonar[%zu]: %.3f m", i, sonar.range);
     }
 
     if (!sensor_data->co2_measurements.empty())
