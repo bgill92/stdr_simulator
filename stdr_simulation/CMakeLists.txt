@@ -10,6 +10,7 @@ add_library(
   src/simulation_engine.cpp
   src/geometry_utils.cpp
   src/config_loader.cpp
+  src/rate_scheduler.cpp
   src/world/world_model.cpp
   src/collision/collision_checker.cpp
   src/motion/noise_model.cpp
@@ -87,6 +88,9 @@ if(BUILD_TESTING)
 
   ament_add_gtest(test_simulation_engine test/test_simulation_engine.cpp)
   target_link_libraries(test_simulation_engine ${PROJECT_NAME} GTest::gmock)
+
+  ament_add_gtest(test_rate_scheduler test/test_rate_scheduler.cpp)
+  target_link_libraries(test_rate_scheduler ${PROJECT_NAME} GTest::gmock)
 
   # plot_data primitives — header-only, no link to ${PROJECT_NAME} needed.
   ament_add_gtest(test_spsc_ring test/test_spsc_ring.cpp)
