@@ -40,6 +40,19 @@ public:
   void set_speed(double multiplier) override;
   void set_step_dt(double seconds) override;
   [[nodiscard]] double get_step_dt() const override;
+  void set_tf_rate(double hz) override;
+  [[nodiscard]] double get_tf_rate() const override;
+  void set_odom_rate(double hz) override;
+  [[nodiscard]] double get_odom_rate() const override;
+  [[nodiscard]] double get_laser_rate(const std::string& robot_id, std::size_t sensor_index) const override;
+  [[nodiscard]] double get_sonar_rate(const std::string& robot_id, std::size_t sensor_index) const override;
+
+  /** @brief Number of times the laser sensor identified by @p key has been published.
+   *
+   *  Key format: "robot_name/sensor_frame_id".  Returns 0 if the key is not found.
+   *  This count reflects actual firings (rate-scheduled events), not every sim tick.
+   */
+  [[nodiscard]] std::size_t laser_publish_count(const std::string& key) const;
   void set_robot_pose(const std::string& name, const stdr_simulation::Pose2D& pose) override;
   void set_cmd_vel(const std::string& robot_name, const stdr_simulation::Twist2D& cmd) override;
   [[nodiscard]] std::shared_ptr<const stdr_gui::SimulationSnapshot> get_snapshot() const override;
@@ -84,6 +97,8 @@ private:
   std::atomic<bool> running_{ false };
   std::atomic<double> speed_{ 1.0 };
   std::atomic<double> step_dt_{ stdr_gui::kDefaultStepDt };
+  std::atomic<double> tf_rate_{ stdr_gui::kDefaultTfRate };
+  std::atomic<double> odom_rate_{ stdr_gui::kDefaultOdomRate };
   double elapsed_time_{ 0.0 };
 
   std::string map_name_;
@@ -116,6 +131,10 @@ private:
   mutable std::mutex sensor_ring_mutex_;
   std::unordered_map<std::string, std::unique_ptr<stdr::plot_data::SpscRing<stdr::plot::TimedLaserScan>>> laser_rings_;
   std::unordered_map<std::string, std::unique_ptr<stdr::plot_data::SpscRing<stdr::plot::TimedSonarReading>>> sonar_rings_;
+  // Per-sensor publication counters keyed as "robot_name/sensor_frame_id".
+  // Incremented each time a rate-scheduled laser event fires for that sensor.
+  // Guarded by sensor_ring_mutex_.
+  std::unordered_map<std::string, std::size_t> laser_publish_counts_;
 };
 
 }  // namespace stdr_standalone

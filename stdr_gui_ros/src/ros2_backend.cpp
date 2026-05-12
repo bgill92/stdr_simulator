@@ -155,6 +155,30 @@ double Ros2Backend::get_step_dt() const
   return step_dt_.load(std::memory_order_relaxed);
 }
 
+void Ros2Backend::set_tf_rate(double hz)
+{
+  // Stored locally; ROS2 propagation to per-robot parameter clients is not yet implemented.
+  const double clamped = std::clamp(hz, stdr_gui::kMinRateHz, stdr_gui::kMaxRateHz);
+  tf_rate_.store(clamped, std::memory_order_relaxed);
+}
+
+double Ros2Backend::get_tf_rate() const
+{
+  return tf_rate_.load(std::memory_order_relaxed);
+}
+
+void Ros2Backend::set_odom_rate(double hz)
+{
+  // Stored locally; ROS2 propagation to per-robot parameter clients is not yet implemented.
+  const double clamped = std::clamp(hz, stdr_gui::kMinRateHz, stdr_gui::kMaxRateHz);
+  odom_rate_.store(clamped, std::memory_order_relaxed);
+}
+
+double Ros2Backend::get_odom_rate() const
+{
+  return odom_rate_.load(std::memory_order_relaxed);
+}
+
 // ─── Robot pose (per-robot service call) ─────────────────────────────────────
 
 void Ros2Backend::set_robot_pose(const std::string& name, const stdr_simulation::Pose2D& pose)

@@ -58,6 +58,10 @@ public:
   void set_speed(double multiplier) override;
   void set_step_dt(double seconds) override;
   [[nodiscard]] double get_step_dt() const override;
+  void set_tf_rate(double hz) override;
+  [[nodiscard]] double get_tf_rate() const override;
+  void set_odom_rate(double hz) override;
+  [[nodiscard]] double get_odom_rate() const override;
   void set_robot_pose(const std::string& name, const stdr_simulation::Pose2D& pose) override;
   void set_cmd_vel(const std::string& robot_name, const stdr_simulation::Twist2D& cmd) override;
   [[nodiscard]] std::shared_ptr<const stdr_gui::SimulationSnapshot> get_snapshot() const override;
@@ -206,6 +210,9 @@ private:
 
   // ── Thread-safe atomic fields ───────────────────────────────────────────────
   std::atomic<double> step_dt_{ stdr_gui::kDefaultStepDt };
+  // TF/odom rates stored locally; full propagation to robot nodes is Phase E.
+  std::atomic<double> tf_rate_{ stdr_gui::kDefaultTfRate };
+  std::atomic<double> odom_rate_{ stdr_gui::kDefaultOdomRate };
 
   // Shared flag cleared in the destructor so async callbacks can detect
   // backend teardown before touching member state.

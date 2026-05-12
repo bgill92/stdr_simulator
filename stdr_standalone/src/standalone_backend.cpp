@@ -5,6 +5,7 @@
 #include <stdr_gui/plot/plotter.hpp>
 #include <stdr_simulation/config_loader.hpp>
 #include <stdr_simulation/plot_data/spsc_ring.hpp>
+#include <stdr_simulation/rate_scheduler.hpp>
 
 #include <tl_expected/expected.hpp>
 
@@ -17,8 +18,10 @@
 namespace stdr_standalone
 {
 
-StandaloneBackend::StandaloneBackend() : engine_(world_model_)
+StandaloneBackend::StandaloneBackend() : engine_(world_model_, stdr_gui::kDefaultStepDt)
 {
+  engine_.set_tf_rate(stdr_gui::kDefaultTfRate);
+  engine_.set_odom_rate(stdr_gui::kDefaultOdomRate);
   sim_thread_ = std::jthread([this](std::stop_token stop_token) { simulation_loop(std::move(stop_token)); });
 }
 
@@ -112,12 +115,54 @@ void StandaloneBackend::set_speed(double multiplier)
 void StandaloneBackend::set_step_dt(double seconds)
 {
   const double clamped = std::clamp(seconds, stdr_gui::kMinStepDt, stdr_gui::kMaxStepDt);
+  // Acquire the lock before storing so the sim loop never observes step_dt_
+  // and the engine's scheduler periods in an inconsistent state.
+  const std::lock_guard<std::mutex> lock(sim_mutex_);
   step_dt_.store(clamped, std::memory_order_relaxed);
+  engine_.set_step_dt(clamped);
 }
 
 double StandaloneBackend::get_step_dt() const
 {
   return step_dt_.load(std::memory_order_relaxed);
+}
+
+void StandaloneBackend::set_tf_rate(double hz)
+{
+  const double clamped = std::clamp(hz, stdr_gui::kMinRateHz, stdr_gui::kMaxRateHz);
+  const std::lock_guard<std::mutex> lock(sim_mutex_);
+  tf_rate_.store(clamped, std::memory_order_relaxed);
+  engine_.set_tf_rate(clamped);
+}
+
+double StandaloneBackend::get_tf_rate() const
+{
+  return tf_rate_.load(std::memory_order_relaxed);
+}
+
+void StandaloneBackend::set_odom_rate(double hz)
+{
+  const double clamped = std::clamp(hz, stdr_gui::kMinRateHz, stdr_gui::kMaxRateHz);
+  const std::lock_guard<std::mutex> lock(sim_mutex_);
+  odom_rate_.store(clamped, std::memory_order_relaxed);
+  engine_.set_odom_rate(clamped);
+}
+
+double StandaloneBackend::get_odom_rate() const
+{
+  return odom_rate_.load(std::memory_order_relaxed);
+}
+
+double StandaloneBackend::get_laser_rate(const std::string& robot_id, std::size_t sensor_index) const
+{
+  const std::lock_guard<std::mutex> lock(sim_mutex_);
+  return engine_.effective_sensor_rate(robot_id, stdr_simulation::StreamKind::Laser, sensor_index);
+}
+
+double StandaloneBackend::get_sonar_rate(const std::string& robot_id, std::size_t sensor_index) const
+{
+  const std::lock_guard<std::mutex> lock(sim_mutex_);
+  return engine_.effective_sensor_rate(robot_id, stdr_simulation::StreamKind::Sonar, sensor_index);
 }
 
 void StandaloneBackend::set_robot_pose(const std::string& name, const stdr_simulation::Pose2D& pose)
@@ -289,8 +334,10 @@ void StandaloneBackend::push_message(std::string msg)
 void StandaloneBackend::push_sensor_events_locked(double timestamp)
 {
   // Called from simulation_loop() while sim_mutex_ is held.
-  // Pushes the laser/sonar results from the most recent engine_.step() into
-  // SPSC rings so plotters can drain them independently.
+  // Pushes sensor results into SPSC rings for sensors that fired this tick
+  // according to the per-robot RateScheduler (via engine_.last_events()).
+  // Sensors that did not fire are skipped so callers observe the update rate
+  // configured via set_rate() rather than the raw sim rate.
   //
   // Lock ordering: sim_mutex_ (caller) → sensor_ring_mutex_ (here).
   // poll_laser_events() / poll_sonar_events() acquire only sensor_ring_mutex_
@@ -305,9 +352,20 @@ void StandaloneBackend::push_sensor_events_locked(double timestamp)
       continue;
     }
 
-    // Laser sensors — correlate by index with robot.config.laser_sensors.
-    for (std::size_t i = 0; i < robot.config.laser_sensors.size() && i < data->laser_scans.size(); ++i)
+    const std::vector<stdr_simulation::StreamEvent>& events = engine_.last_events(robot.name);
+
+    // Laser sensors — only push when the scheduler fired a Laser event for that index.
+    for (const stdr_simulation::StreamEvent& event : events)
     {
+      if (event.kind != stdr_simulation::StreamKind::Laser)
+      {
+        continue;
+      }
+      const std::size_t i = event.index;
+      if (i >= robot.config.laser_sensors.size() || i >= data->laser_scans.size())
+      {
+        continue;
+      }
       const std::string key = robot.name + "/" + robot.config.laser_sensors[i].frame_id;
       auto ring_it = laser_rings_.find(key);
       if (ring_it == laser_rings_.end())
@@ -318,11 +376,21 @@ void StandaloneBackend::push_sensor_events_locked(double timestamp)
                       .first;
       }
       ring_it->second->push(stdr::plot::TimedLaserScan{ timestamp, data->laser_scans[i] });
+      ++laser_publish_counts_[key];
     }
 
     // Sonar sensors — same pattern.
-    for (std::size_t i = 0; i < robot.config.sonar_sensors.size() && i < data->sonar_scans.size(); ++i)
+    for (const stdr_simulation::StreamEvent& event : events)
     {
+      if (event.kind != stdr_simulation::StreamKind::Sonar)
+      {
+        continue;
+      }
+      const std::size_t i = event.index;
+      if (i >= robot.config.sonar_sensors.size() || i >= data->sonar_scans.size())
+      {
+        continue;
+      }
       const std::string key = robot.name + "/" + robot.config.sonar_sensors[i].frame_id;
       auto ring_it = sonar_rings_.find(key);
       if (ring_it == sonar_rings_.end())
@@ -335,6 +403,17 @@ void StandaloneBackend::push_sensor_events_locked(double timestamp)
       ring_it->second->push(stdr::plot::TimedSonarReading{ timestamp, data->sonar_scans[i] });
     }
   }
+}
+
+std::size_t StandaloneBackend::laser_publish_count(const std::string& key) const
+{
+  const std::lock_guard<std::mutex> ring_lock(sensor_ring_mutex_);
+  const auto it = laser_publish_counts_.find(key);
+  if (it == laser_publish_counts_.end())
+  {
+    return 0;
+  }
+  return it->second;
 }
 
 stdr_gui::DrainedLaserResult StandaloneBackend::poll_laser_events(std::uint64_t& cursor, const std::string& robot_id,
@@ -468,9 +547,15 @@ std::optional<stdr_simulation::LaserScan> StandaloneBackend::latest_laser(const 
     {
       if (i < data->laser_scans.size())
       {
-        return data->laser_scans[i];
+        const stdr_simulation::LaserScan& scan = data->laser_scans[i];
+        // A slot with empty ranges means the sensor has not produced a measurement
+        // yet (e.g. no map loaded), so treat it as absent.
+        if (scan.ranges.empty())
+        {
+          return std::nullopt;
+        }
+        return scan;
       }
-      // Scan slot exists in config but hasn't been produced yet (no map).
       return std::nullopt;
     }
   }
