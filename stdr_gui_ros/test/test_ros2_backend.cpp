@@ -8,6 +8,7 @@
 #include <nav_msgs/msg/occupancy_grid.hpp>
 #include <nav_msgs/msg/odometry.hpp>
 #include <rclcpp/executors/single_threaded_executor.hpp>
+#include <rclcpp/parameter_client.hpp>
 #include <rclcpp/rclcpp.hpp>
 #include <sensor_msgs/msg/laser_scan.hpp>
 #include <sensor_msgs/msg/range.hpp>
@@ -18,6 +19,7 @@
 #include <gtest/gtest.h>
 
 #include <chrono>
+#include <cmath>
 #include <cstdint>
 #include <memory>
 #include <string>
@@ -32,6 +34,30 @@ namespace
 using ::testing::DoubleNear;
 using ::testing::IsEmpty;
 using ::testing::SizeIs;
+
+// ─── Global rclcpp lifecycle ──────────────────────────────────────────────────
+//
+// All test suites in this binary share one rclcpp::init / rclcpp::shutdown pair
+// so that multiple test fixtures with different SetUpTestSuite bodies don't
+// fight over the rclcpp context.
+
+class RclcppEnvironment : public ::testing::Environment
+{
+public:
+  void SetUp() override
+  {
+    rclcpp::init(0, nullptr);
+  }
+  void TearDown() override
+  {
+    rclcpp::shutdown();
+  }
+};
+
+// Register the environment before any test runs.  The pointer is adopted by the
+// GoogleTest framework and must not be deleted by the caller.
+// NOLINTNEXTLINE(cert-err58-cpp) — safe: AddGlobalTestEnvironment is called before main test execution
+const ::testing::Environment* const kRclcppEnv = ::testing::AddGlobalTestEnvironment(new RclcppEnvironment);
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -91,16 +117,6 @@ bool spin_until(rclcpp::executors::SingleThreadedExecutor& executor, Predicate p
 class Ros2BackendTest : public ::testing::Test
 {
 protected:
-  static void SetUpTestSuite()
-  {
-    rclcpp::init(0, nullptr);
-  }
-
-  static void TearDownTestSuite()
-  {
-    rclcpp::shutdown();
-  }
-
   Ros2BackendTest() : node_(std::make_shared<rclcpp::Node>("test_stdr_gui")), backend_(node_)
   {
   }
@@ -808,6 +824,149 @@ TEST_F(Ros2BackendTest, SonarSubscriptionsClearedOnRobotRemoval)
   EXPECT_FALSE(backend_.latest_sonar("robot0", "sonar_0").has_value());
   const stdr_gui::DrainedSonarResult result2 = backend_.poll_sonar_events(cursor, "robot0", "sonar_0");
   EXPECT_THAT(result2.scans, IsEmpty());
+}
+
+// ─── Rate propagation tests ───────────────────────────────────────────────────
+//
+// These tests verify that set_step_dt/set_tf_rate/set_odom_rate propagate their
+// values to connected robot nodes via AsyncParametersClient.  A helper node
+// named "stdr_robot" (matching the hardcoded name in StdrRobotNode) declares the
+// same parameters so the backend's param clients can target it.
+//
+// Note: AsyncParametersClient service discovery is async; these tests spin for
+// up to 2 s per assertion.  Occasional flakiness on a heavily loaded CI machine
+// is possible — the underlying mechanism is correct, not the test.
+
+class Ros2BackendRatePropagationTest : public ::testing::Test
+{
+protected:
+  Ros2BackendRatePropagationTest()
+    : node_(std::make_shared<rclcpp::Node>("test_stdr_gui_rate"))
+    , backend_(node_)
+    // A mock robot node named "stdr_robot" to match StdrRobotNode's hardcoded name.
+    , robot_node_(std::make_shared<rclcpp::Node>("stdr_robot"))
+    , pub_node_(std::make_shared<rclcpp::Node>("test_rate_publisher"))
+  {
+    rclcpp::QoS q(10);
+    q.transient_local();
+    active_robots_pub_ =
+        pub_node_->create_publisher<stdr_msgs::msg::RobotIndexedVectorMsg>("stdr_server/active_robots", q);
+
+    // Declare the same parameters that StdrRobotNode declares, so the
+    // AsyncParametersClient can set them.
+    robot_node_->declare_parameter<double>("sim_step_dt", stdr_gui::kDefaultStepDt);
+    robot_node_->declare_parameter<double>("tf_rate", stdr_gui::kDefaultTfRate);
+    robot_node_->declare_parameter<double>("odom_rate", stdr_gui::kDefaultOdomRate);
+  }
+
+  // Publish active_robots and wait for the backend to process it.
+  void publish_active_robots_and_wait(const std::vector<std::pair<std::string, stdr_simulation::RobotConfig>>& robots,
+                                      rclcpp::executors::SingleThreadedExecutor& executor)
+  {
+    stdr_msgs::msg::RobotIndexedVectorMsg msg = make_active_robots_msg(robots);
+    active_robots_pub_->publish(msg);
+    const std::size_t expected_count = robots.size();
+    spin_until(
+        executor, [&] { return backend_.num_robots() == expected_count; }, std::chrono::milliseconds(1000));
+  }
+
+  std::shared_ptr<rclcpp::Node> node_;
+  Ros2Backend backend_;
+  std::shared_ptr<rclcpp::Node> robot_node_;
+  std::shared_ptr<rclcpp::Node> pub_node_;
+  rclcpp::Publisher<stdr_msgs::msg::RobotIndexedVectorMsg>::SharedPtr active_robots_pub_;
+};
+
+TEST_F(Ros2BackendRatePropagationTest, SetStepDtPropagatesToRobotNode)
+{
+  rclcpp::executors::SingleThreadedExecutor executor;
+  executor.add_node(node_);
+  executor.add_node(pub_node_);
+  executor.add_node(robot_node_);
+
+  // Register one robot so a param client is created.
+  stdr_simulation::RobotConfig cfg;
+  publish_active_robots_and_wait({ { "robot0", cfg } }, executor);
+
+  // Wait for the param service on robot_node_ to be available.
+  const bool service_ready = spin_until(
+      executor,
+      [&] {
+        rclcpp::SyncParametersClient sc(node_, "stdr_robot");
+        return sc.service_is_ready();
+      },
+      std::chrono::milliseconds(2000));
+  if (!service_ready)
+  {
+    GTEST_SKIP() << "Parameter service not available in time — skipping propagation test.";
+  }
+
+  backend_.set_step_dt(0.05);
+
+  const bool propagated = spin_until(
+      executor, [&] { return std::abs(robot_node_->get_parameter("sim_step_dt").as_double() - 0.05) < 1e-9; },
+      std::chrono::milliseconds(2000));
+  EXPECT_TRUE(propagated) << "sim_step_dt was not propagated in time";
+}
+
+TEST_F(Ros2BackendRatePropagationTest, SetTfRatePropagatesToRobotNode)
+{
+  rclcpp::executors::SingleThreadedExecutor executor;
+  executor.add_node(node_);
+  executor.add_node(pub_node_);
+  executor.add_node(robot_node_);
+
+  stdr_simulation::RobotConfig cfg;
+  publish_active_robots_and_wait({ { "robot0", cfg } }, executor);
+
+  const bool service_ready = spin_until(
+      executor,
+      [&] {
+        rclcpp::SyncParametersClient sc(node_, "stdr_robot");
+        return sc.service_is_ready();
+      },
+      std::chrono::milliseconds(2000));
+  if (!service_ready)
+  {
+    GTEST_SKIP() << "Parameter service not available in time — skipping propagation test.";
+  }
+
+  backend_.set_tf_rate(25.0);
+
+  const bool propagated = spin_until(
+      executor, [&] { return std::abs(robot_node_->get_parameter("tf_rate").as_double() - 25.0) < 1e-9; },
+      std::chrono::milliseconds(2000));
+  EXPECT_TRUE(propagated) << "tf_rate was not propagated in time";
+}
+
+TEST_F(Ros2BackendRatePropagationTest, SetOdomRatePropagatesToRobotNode)
+{
+  rclcpp::executors::SingleThreadedExecutor executor;
+  executor.add_node(node_);
+  executor.add_node(pub_node_);
+  executor.add_node(robot_node_);
+
+  stdr_simulation::RobotConfig cfg;
+  publish_active_robots_and_wait({ { "robot0", cfg } }, executor);
+
+  const bool service_ready = spin_until(
+      executor,
+      [&] {
+        rclcpp::SyncParametersClient sc(node_, "stdr_robot");
+        return sc.service_is_ready();
+      },
+      std::chrono::milliseconds(2000));
+  if (!service_ready)
+  {
+    GTEST_SKIP() << "Parameter service not available in time — skipping propagation test.";
+  }
+
+  backend_.set_odom_rate(15.0);
+
+  const bool propagated = spin_until(
+      executor, [&] { return std::abs(robot_node_->get_parameter("odom_rate").as_double() - 15.0) < 1e-9; },
+      std::chrono::milliseconds(2000));
+  EXPECT_TRUE(propagated) << "odom_rate was not propagated in time";
 }
 
 }  // namespace

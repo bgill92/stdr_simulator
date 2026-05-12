@@ -98,6 +98,16 @@ public:
 private:
   void push_message(std::string msg);
 
+  /**
+   * @brief Fire-and-forget async parameter set on all known robot nodes.
+   *
+   * Takes a snapshot of param_clients_ under snapshot_mutex_, then sends
+   * set_parameters() on each client that is service-ready.  Clients that are
+   * not yet ready are skipped with a WARN log; the GUI initiating the call is
+   * still considered successful.
+   */
+  void propagate_parameter(const std::string& param_name, double value);
+
   // Subscription callbacks — all called on the executor thread.
   void on_map(const nav_msgs::msg::OccupancyGrid::SharedPtr msg);
   void on_active_robots(const stdr_msgs::msg::RobotIndexedVectorMsg::SharedPtr msg);
@@ -166,6 +176,12 @@ private:
 
   // Lazily-created LoadMap client.
   rclcpp::Client<stdr_msgs::srv::LoadMap>::SharedPtr load_map_client_;
+
+  // Per-robot AsyncParametersClient for propagating rate parameters.  Created
+  // lazily when a robot first appears in on_active_robots().  Keyed by robot
+  // name.
+  // Guarded by snapshot_mutex_. Mutated in on_active_robots(); snapshotted in propagate_parameter().
+  std::unordered_map<std::string, rclcpp::AsyncParametersClient::SharedPtr> param_clients_;
 
   // ── Sensor rings and latest snapshots (sensor_ring_mutex_) ────────────────
   //

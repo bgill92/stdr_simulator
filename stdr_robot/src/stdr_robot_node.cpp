@@ -4,7 +4,10 @@
 
 #include <tf2/LinearMath/Quaternion.h>
 #include <geometry_msgs/msg/transform_stamped.hpp>
+#include <rcl_interfaces/msg/floating_point_range.hpp>
+#include <rcl_interfaces/msg/parameter_descriptor.hpp>
 
+#include <chrono>
 #include <cmath>
 #include <string>
 
@@ -13,10 +16,6 @@ namespace stdr_robot
 
 namespace
 {
-
-constexpr std::chrono::milliseconds kSimulationPeriod{ 100 };
-// Derive dt from the timer period so they stay in sync.
-constexpr double kSimulationDt = static_cast<double>(kSimulationPeriod.count()) / 1000.0;
 
 /** Convert a yaw angle to a ROS quaternion message. */
 [[nodiscard]] geometry_msgs::msg::Quaternion yaw_to_quaternion(double yaw)
@@ -29,6 +28,28 @@ constexpr double kSimulationDt = static_cast<double>(kSimulationPeriod.count()) 
   msg.z = q.z();
   msg.w = q.w();
   return msg;
+}
+
+/**
+ * @brief Build a ParameterDescriptor with a floating-point range for declared params.
+ *
+ * Using descriptors lets external tools (rqt_reconfigure, ros2 param set) know
+ * the valid range without relying on the param callback to reject values at
+ * runtime.
+ */
+[[nodiscard]] rcl_interfaces::msg::ParameterDescriptor
+make_float_descriptor(const std::string& description, double from_value, double to_value, double step = 0.0)
+{
+  rcl_interfaces::msg::ParameterDescriptor desc;
+  desc.description = description;
+  desc.type = rcl_interfaces::msg::ParameterType::PARAMETER_DOUBLE;
+
+  rcl_interfaces::msg::FloatingPointRange range;
+  range.from_value = from_value;
+  range.to_value = to_value;
+  range.step = step;
+  desc.floating_point_range.push_back(range);
+  return desc;
 }
 
 /**
@@ -87,7 +108,9 @@ void create_sensor_publishers_and_tf(rclcpp::Node& node, const std::vector<Confi
 
 // ─── Constructor ────────────────────────────────────────────────────────────
 
-StdrRobotNode::StdrRobotNode(const rclcpp::NodeOptions& options) : rclcpp::Node("stdr_robot", options)
+StdrRobotNode::StdrRobotNode(const rclcpp::NodeOptions& options)
+  : rclcpp::Node("stdr_robot", options)
+  , scheduler_(stdr_simulation::kDefaultStepDt)  // placeholder; overwritten below once param is read
 {
   declare_parameter<std::string>("robot_name", "");
   robot_name_ = get_parameter("robot_name").as_string();
@@ -96,6 +119,108 @@ StdrRobotNode::StdrRobotNode(const rclcpp::NodeOptions& options) : rclcpp::Node(
     RCLCPP_ERROR(get_logger(), "Parameter 'robot_name' must be set");
     return;
   }
+
+  // Declare rate parameters with advisory floating-point range descriptors.
+  // The param callback below performs the actual validation and rejection.
+  declare_parameter<double>("sim_step_dt", stdr_simulation::kDefaultStepDt,
+                            make_float_descriptor("Simulation physics step duration in seconds.",
+                                                  stdr_simulation::kMinStepDt, stdr_simulation::kMaxStepDt));
+
+  declare_parameter<double>("tf_rate", stdr_simulation::kDefaultTfRateHz,
+                            make_float_descriptor("TF broadcast rate in Hz. 0 means every sim tick.",
+                                                  stdr_simulation::kMinRateHz, stdr_simulation::kMaxRateHz));
+
+  declare_parameter<double>("odom_rate", stdr_simulation::kDefaultOdomRateHz,
+                            make_float_descriptor("Odometry publish rate in Hz. 0 means every sim tick.",
+                                                  stdr_simulation::kMinRateHz, stdr_simulation::kMaxRateHz));
+
+  sim_step_dt_ = get_parameter("sim_step_dt").as_double();
+  tf_rate_ = get_parameter("tf_rate").as_double();
+  odom_rate_ = get_parameter("odom_rate").as_double();
+
+  // Re-initialize the scheduler with the validated step dt.
+  scheduler_ = stdr_simulation::RateScheduler(sim_step_dt_);
+
+  // Register the param callback to handle dynamic reconfiguration.  The handle
+  // must be stored to keep the callback alive; rclcpp weak-references the callback
+  // via the handle.
+  param_callback_handle_ = add_on_set_parameters_callback([this](const std::vector<rclcpp::Parameter>& parameters) {
+    rcl_interfaces::msg::SetParametersResult result;
+    result.successful = true;
+
+    // Collect proposed updates so we apply all-or-nothing on success.
+    double new_sim_step_dt = sim_step_dt_;
+    double new_tf_rate = tf_rate_;
+    double new_odom_rate = odom_rate_;
+    bool sim_step_dt_changed = false;
+
+    for (const rclcpp::Parameter& param : parameters)
+    {
+      if (param.get_name() == "sim_step_dt")
+      {
+        const double v = param.as_double();
+        if (v < stdr_simulation::kMinStepDt || v > stdr_simulation::kMaxStepDt)
+        {
+          result.successful = false;
+          result.reason = "sim_step_dt must be in [0.001, 1.0]";
+          return result;
+        }
+        new_sim_step_dt = v;
+        sim_step_dt_changed = true;
+      }
+      else if (param.get_name() == "tf_rate")
+      {
+        const double v = param.as_double();
+        if (v < stdr_simulation::kMinRateHz || v > stdr_simulation::kMaxRateHz)
+        {
+          result.successful = false;
+          result.reason = "tf_rate must be in [0.0, 1000.0]";
+          return result;
+        }
+        new_tf_rate = v;
+      }
+      else if (param.get_name() == "odom_rate")
+      {
+        const double v = param.as_double();
+        if (v < stdr_simulation::kMinRateHz || v > stdr_simulation::kMaxRateHz)
+        {
+          result.successful = false;
+          result.reason = "odom_rate must be in [0.0, 1000.0]";
+          return result;
+        }
+        new_odom_rate = v;
+      }
+    }
+
+    // All parameters validated — apply updates.
+    sim_step_dt_ = new_sim_step_dt;
+    tf_rate_ = new_tf_rate;
+    odom_rate_ = new_odom_rate;
+
+    if (sim_step_dt_changed)
+    {
+      scheduler_.set_step_dt(sim_step_dt_);
+    }
+
+    scheduler_.set_rate(stdr_simulation::StreamKind::Tf, 0, tf_rate_);
+    scheduler_.set_rate(stdr_simulation::StreamKind::Odom, 0, odom_rate_);
+
+    if (sim_step_dt_changed)
+    {
+      // Serialize sim_timer_ recreation against concurrent parameter callbacks.
+      // simulation_step() runs on the same callback group (MutuallyExclusiveCallbackGroup
+      // by default), so reentrancy with the timer body is already prevented.
+      const std::chrono::nanoseconds new_period(static_cast<std::int64_t>(sim_step_dt_ * 1e9));
+      const std::lock_guard<std::mutex> lock(timer_mutex_);
+      if (sim_timer_)
+      {
+        sim_timer_->cancel();
+      }
+      sim_timer_ = create_wall_timer(new_period, [this]() { simulation_step(); });
+    }
+
+    return result;
+  });
 
   // TF broadcasters.
   tf_broadcaster_ = std::make_unique<tf2_ros::TransformBroadcaster>(this);
@@ -136,8 +261,9 @@ StdrRobotNode::StdrRobotNode(const rclcpp::NodeOptions& options) : rclcpp::Node(
       [this](const stdr_msgs::srv::MoveRobot::Request::SharedPtr request,
              stdr_msgs::srv::MoveRobot::Response::SharedPtr response) { handle_move_robot(request, response); });
 
-  // Simulation timer (10 Hz).
-  sim_timer_ = create_wall_timer(kSimulationPeriod, [this]() { simulation_step(); });
+  // Simulation timer driven by the declared sim_step_dt parameter.
+  const std::chrono::nanoseconds sim_period(static_cast<std::int64_t>(sim_step_dt_ * 1e9));
+  sim_timer_ = create_wall_timer(sim_period, [this]() { simulation_step(); });
 
   // RegisterRobot action client.
   register_client_ = rclcpp_action::create_client<RegisterRobot>(this, "stdr_server/register_robot");
@@ -183,6 +309,7 @@ void StdrRobotNode::configure(const stdr_simulation::RobotConfig& config)
   pose_ = config_.initial_pose;
   previous_pose_ = pose_;
   setup_publishers_and_tf();
+  register_scheduler_streams();
   registered_ = true;
   RCLCPP_INFO(get_logger(), "Robot '%s' configured directly (test mode)", robot_name_.c_str());
 }
@@ -201,6 +328,7 @@ void StdrRobotNode::on_register_result(const rclcpp_action::ClientGoalHandle<Reg
   pose_ = config_.initial_pose;
   previous_pose_ = pose_;
   setup_publishers_and_tf();
+  register_scheduler_streams();
   registered_ = true;
   RCLCPP_INFO(get_logger(), "Robot '%s' registered successfully", robot_name_.c_str());
 }
@@ -226,6 +354,63 @@ void StdrRobotNode::setup_publishers_and_tf()
       *this, config_.sound_sensors, sound_pubs_, robot_name_, *static_tf_broadcaster_, stamp);
   create_sensor_publishers_and_tf<stdr_msgs::msg::ThermalSensorMeasurementMsg>(
       *this, config_.thermal_sensors, thermal_pubs_, robot_name_, *static_tf_broadcaster_, stamp);
+}
+
+// ─── Register scheduler streams ────────────────────────────────────────────
+
+void StdrRobotNode::register_scheduler_streams()
+{
+  scheduler_.clear();
+
+  scheduler_.set_rate(stdr_simulation::StreamKind::Tf, 0, tf_rate_);
+  scheduler_.set_rate(stdr_simulation::StreamKind::Odom, 0, odom_rate_);
+
+  for (std::size_t i = 0; i < config_.laser_sensors.size(); ++i)
+  {
+    scheduler_.set_rate(stdr_simulation::StreamKind::Laser, i, config_.laser_sensors[i].frequency);
+  }
+  for (std::size_t i = 0; i < config_.sonar_sensors.size(); ++i)
+  {
+    scheduler_.set_rate(stdr_simulation::StreamKind::Sonar, i, config_.sonar_sensors[i].frequency);
+  }
+  for (std::size_t i = 0; i < config_.rfid_sensors.size(); ++i)
+  {
+    scheduler_.set_rate(stdr_simulation::StreamKind::Rfid, i, config_.rfid_sensors[i].frequency);
+  }
+  for (std::size_t i = 0; i < config_.co2_sensors.size(); ++i)
+  {
+    scheduler_.set_rate(stdr_simulation::StreamKind::CO2, i, config_.co2_sensors[i].frequency);
+  }
+  for (std::size_t i = 0; i < config_.thermal_sensors.size(); ++i)
+  {
+    scheduler_.set_rate(stdr_simulation::StreamKind::Thermal, i, config_.thermal_sensors[i].frequency);
+  }
+  for (std::size_t i = 0; i < config_.sound_sensors.size(); ++i)
+  {
+    scheduler_.set_rate(stdr_simulation::StreamKind::Sound, i, config_.sound_sensors[i].frequency);
+  }
+}
+
+// ─── Rate accessors ─────────────────────────────────────────────────────────
+
+double StdrRobotNode::effective_tf_rate() const
+{
+  return scheduler_.effective_rate(stdr_simulation::StreamKind::Tf, 0);
+}
+
+double StdrRobotNode::effective_odom_rate() const
+{
+  return scheduler_.effective_rate(stdr_simulation::StreamKind::Odom, 0);
+}
+
+double StdrRobotNode::effective_laser_rate(std::size_t index) const
+{
+  return scheduler_.effective_rate(stdr_simulation::StreamKind::Laser, index);
+}
+
+double StdrRobotNode::effective_sonar_rate(std::size_t index) const
+{
+  return scheduler_.effective_rate(stdr_simulation::StreamKind::Sonar, index);
 }
 
 // ─── Subscription callbacks ─────────────────────────────────────────────────
@@ -326,11 +511,105 @@ void StdrRobotNode::simulation_step()
     return;
   }
 
-  integrate_motion(kSimulationDt);
+  integrate_motion(sim_step_dt_);
   const rclcpp::Time stamp = now();
-  simulate_sensors(stamp);
-  publish_odometry(stamp);
-  broadcast_robot_tf(stamp);
+
+  const std::vector<stdr_simulation::StreamEvent> events = scheduler_.tick();
+
+  for (const stdr_simulation::StreamEvent& event : events)
+  {
+    switch (event.kind)
+    {
+      case stdr_simulation::StreamKind::Tf:
+        broadcast_robot_tf(stamp);
+        break;
+      case stdr_simulation::StreamKind::Odom:
+        publish_odometry(stamp);
+        break;
+      case stdr_simulation::StreamKind::Laser:
+        simulate_laser(event.index, stamp);
+        break;
+      case stdr_simulation::StreamKind::Sonar:
+        simulate_sonar(event.index, stamp);
+        break;
+      case stdr_simulation::StreamKind::Rfid:
+        if (event.index < config_.rfid_sensors.size() && event.index < rfid_pubs_.size())
+        {
+          simulate_and_publish(std::vector<stdr_simulation::RfidSensorConfig>{ config_.rfid_sensors[event.index] },
+                               std::vector<rclcpp::Publisher<stdr_msgs::msg::RfidSensorMeasurementMsg>::SharedPtr>{
+                                   rfid_pubs_[event.index] },
+                               rfid_sim_, pose_, robot_name_, stamp, rfid_tags_);
+        }
+        break;
+      case stdr_simulation::StreamKind::CO2:
+        if (event.index < config_.co2_sensors.size() && event.index < co2_pubs_.size())
+        {
+          simulate_and_publish(std::vector<stdr_simulation::CO2SensorConfig>{ config_.co2_sensors[event.index] },
+                               std::vector<rclcpp::Publisher<stdr_msgs::msg::CO2SensorMeasurementMsg>::SharedPtr>{
+                                   co2_pubs_[event.index] },
+                               co2_sim_, pose_, robot_name_, stamp, co2_sources_);
+        }
+        break;
+      case stdr_simulation::StreamKind::Thermal:
+        if (event.index < config_.thermal_sensors.size() && event.index < thermal_pubs_.size())
+        {
+          simulate_and_publish(std::vector<stdr_simulation::ThermalSensorConfig>{ config_.thermal_sensors[event.index] },
+                               std::vector<rclcpp::Publisher<stdr_msgs::msg::ThermalSensorMeasurementMsg>::SharedPtr>{
+                                   thermal_pubs_[event.index] },
+                               thermal_sim_, pose_, robot_name_, stamp, thermal_sources_);
+        }
+        break;
+      case stdr_simulation::StreamKind::Sound:
+        if (event.index < config_.sound_sensors.size() && event.index < sound_pubs_.size())
+        {
+          simulate_and_publish(std::vector<stdr_simulation::SoundSensorConfig>{ config_.sound_sensors[event.index] },
+                               std::vector<rclcpp::Publisher<stdr_msgs::msg::SoundSensorMeasurementMsg>::SharedPtr>{
+                                   sound_pubs_[event.index] },
+                               sound_sim_, pose_, robot_name_, stamp, sound_sources_);
+        }
+        break;
+    }
+  }
+}
+
+// ─── Per-sensor simulation helpers ─────────────────────────────────────────
+
+void StdrRobotNode::simulate_laser(std::size_t index, const rclcpp::Time& stamp)
+{
+  if (!map_.has_value())
+  {
+    return;
+  }
+  if (index >= config_.laser_sensors.size() || index >= laser_pubs_.size())
+  {
+    return;
+  }
+  const stdr_simulation::LaserConfig& cfg = config_.laser_sensors[index];
+  const stdr_simulation::Pose2D world_pose = stdr_simulation::compute_sensor_world_pose(pose_, cfg.pose);
+  const stdr_simulation::LaserScan scan = laser_sim_.simulate(world_pose, cfg, *map_);
+  sensor_msgs::msg::LaserScan msg = stdr_parser::to_ros_msg(scan);
+  msg.header.stamp = stamp;
+  msg.header.frame_id = robot_name_ + "/" + cfg.frame_id;
+  laser_pubs_[index]->publish(msg);
+}
+
+void StdrRobotNode::simulate_sonar(std::size_t index, const rclcpp::Time& stamp)
+{
+  if (!map_.has_value())
+  {
+    return;
+  }
+  if (index >= config_.sonar_sensors.size() || index >= sonar_pubs_.size())
+  {
+    return;
+  }
+  const stdr_simulation::SonarConfig& cfg = config_.sonar_sensors[index];
+  const stdr_simulation::Pose2D world_pose = stdr_simulation::compute_sensor_world_pose(pose_, cfg.pose);
+  const stdr_simulation::SonarScan scan_result = sonar_sim_.simulate(world_pose, cfg, *map_);
+  sensor_msgs::msg::Range msg = stdr_parser::to_ros_sonar_msg(scan_result, cfg);
+  msg.header.stamp = stamp;
+  msg.header.frame_id = robot_name_ + "/" + cfg.frame_id;
+  sonar_pubs_[index]->publish(msg);
 }
 
 // ─── Motion integration ─────────────────────────────────────────────────────
@@ -364,37 +643,6 @@ void StdrRobotNode::integrate_motion(double dt)
     previous_pose_ = pose_;
     pose_ = new_pose;
   }
-}
-
-// ─── Sensor simulation ──────────────────────────────────────────────────────
-
-void StdrRobotNode::simulate_sensors(const rclcpp::Time& stamp)
-{
-  // Laser and sonar require a map.
-  if (map_.has_value())
-  {
-    simulate_and_publish(config_.laser_sensors, laser_pubs_, laser_sim_, pose_, robot_name_, stamp, *map_);
-
-    // Sonar uses a different conversion function (needs config for range metadata),
-    // so it cannot use the generic template.
-    for (std::size_t i = 0; i < config_.sonar_sensors.size(); ++i)
-    {
-      const stdr_simulation::SonarConfig& cfg = config_.sonar_sensors[i];
-      const stdr_simulation::Pose2D world_pose = stdr_simulation::compute_sensor_world_pose(pose_, cfg.pose);
-      const stdr_simulation::SonarScan scan = sonar_sim_.simulate(world_pose, cfg, *map_);
-      sensor_msgs::msg::Range msg = stdr_parser::to_ros_sonar_msg(scan, cfg);
-      msg.header.stamp = stamp;
-      msg.header.frame_id = robot_name_ + "/" + cfg.frame_id;
-      sonar_pubs_[i]->publish(msg);
-    }
-  }
-
-  // Environment sensors do not require a map.
-  simulate_and_publish(config_.rfid_sensors, rfid_pubs_, rfid_sim_, pose_, robot_name_, stamp, rfid_tags_);
-  simulate_and_publish(config_.co2_sensors, co2_pubs_, co2_sim_, pose_, robot_name_, stamp, co2_sources_);
-  simulate_and_publish(config_.thermal_sensors, thermal_pubs_, thermal_sim_, pose_, robot_name_, stamp,
-                       thermal_sources_);
-  simulate_and_publish(config_.sound_sensors, sound_pubs_, sound_sim_, pose_, robot_name_, stamp, sound_sources_);
 }
 
 // ─── Publishing ─────────────────────────────────────────────────────────────

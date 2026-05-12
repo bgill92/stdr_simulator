@@ -2,7 +2,9 @@
 #include <gtest/gtest.h>
 
 #include <stdr_robot/stdr_robot_node.hpp>
+#include <stdr_simulation/rate_scheduler.hpp>
 
+#include <rcl_interfaces/msg/set_parameters_result.hpp>
 #include <rclcpp/rclcpp.hpp>
 
 #include <chrono>
@@ -215,6 +217,118 @@ TEST_F(RobotNodeTest, LaserPublishesWithMap)
   const bool ok = spin_until(
       executor, [&received_laser]() { return received_laser; }, 3000ms);
   ASSERT_TRUE(ok) << "Timed out waiting for laser scan";
+}
+
+// ─── Rate parameter declarations ─────────────────────────────────────────────
+
+TEST_F(RobotNodeTest, DeclaresRateParametersWithDefaults)
+{
+  EXPECT_DOUBLE_EQ(node_->get_parameter("sim_step_dt").as_double(), stdr_simulation::kDefaultStepDt);
+  EXPECT_DOUBLE_EQ(node_->get_parameter("tf_rate").as_double(), stdr_simulation::kDefaultTfRateHz);
+  EXPECT_DOUBLE_EQ(node_->get_parameter("odom_rate").as_double(), stdr_simulation::kDefaultOdomRateHz);
+}
+
+// ─── sim_step_dt bounds validation ──────────────────────────────────────────
+
+TEST_F(RobotNodeTest, RejectsSimStepDtBelowMin)
+{
+  const rcl_interfaces::msg::SetParametersResult result = node_->set_parameter(rclcpp::Parameter("sim_step_dt", 0.0));
+  EXPECT_FALSE(result.successful);
+}
+
+TEST_F(RobotNodeTest, RejectsSimStepDtAboveMax)
+{
+  const rcl_interfaces::msg::SetParametersResult result = node_->set_parameter(rclcpp::Parameter("sim_step_dt", 2.0));
+  EXPECT_FALSE(result.successful);
+}
+
+// ─── tf_rate bounds validation ───────────────────────────────────────────────
+
+TEST_F(RobotNodeTest, RejectsTfRateBelowMin)
+{
+  // Negative value is below kMinRateHz = 0.0.
+  const rcl_interfaces::msg::SetParametersResult result = node_->set_parameter(rclcpp::Parameter("tf_rate", -1.0));
+  EXPECT_FALSE(result.successful);
+}
+
+TEST_F(RobotNodeTest, RejectsTfRateAboveMax)
+{
+  const rcl_interfaces::msg::SetParametersResult result =
+      node_->set_parameter(rclcpp::Parameter("tf_rate", stdr_simulation::kMaxRateHz + 1.0));
+  EXPECT_FALSE(result.successful);
+}
+
+// ─── odom_rate bounds validation ────────────────────────────────────────────
+
+TEST_F(RobotNodeTest, RejectsOdomRateBelowMin)
+{
+  const rcl_interfaces::msg::SetParametersResult result = node_->set_parameter(rclcpp::Parameter("odom_rate", -1.0));
+  EXPECT_FALSE(result.successful);
+}
+
+TEST_F(RobotNodeTest, RejectsOdomRateAboveMax)
+{
+  const rcl_interfaces::msg::SetParametersResult result =
+      node_->set_parameter(rclcpp::Parameter("odom_rate", stdr_simulation::kMaxRateHz + 1.0));
+  EXPECT_FALSE(result.successful);
+}
+
+// ─── Valid rate change is accepted ──────────────────────────────────────────
+
+TEST_F(RobotNodeTest, AcceptsValidRateChange)
+{
+  const rcl_interfaces::msg::SetParametersResult result = node_->set_parameter(rclcpp::Parameter("tf_rate", 25.0));
+  ASSERT_TRUE(result.successful);
+  EXPECT_DOUBLE_EQ(node_->get_parameter("tf_rate").as_double(), 25.0);
+}
+
+// ─── Scheduler period math after reconfiguration ────────────────────────────
+
+// With sim_step_dt=0.05, tf_rate=20 Hz: period = round(1/(20*0.05)) = round(1) = 1 tick.
+// With odom_rate=10 Hz: period = round(1/(10*0.05)) = round(2) = 2 ticks.
+// After configure(), the scheduler streams are registered with the default rates;
+// then we reconfigure the rates to verify.
+TEST_F(RobotNodeTest, SchedulerPeriodMatchesAfterReconfigure)
+{
+  // First configure the node so scheduler streams are registered.
+  node_->configure(make_test_config());
+
+  // Reconfigure to a new sim_step_dt and rates.
+  ASSERT_TRUE(node_->set_parameter(rclcpp::Parameter("sim_step_dt", 0.05)).successful);
+  ASSERT_TRUE(node_->set_parameter(rclcpp::Parameter("tf_rate", 20.0)).successful);
+  ASSERT_TRUE(node_->set_parameter(rclcpp::Parameter("odom_rate", 10.0)).successful);
+
+  // With dt=0.05 and tf_rate=20: period = max(1, round(1/(20*0.05))) = 1.
+  EXPECT_EQ(node_->effective_tf_rate(), 1.0 / (1 * 0.05));
+  // With dt=0.05 and odom_rate=10: period = max(1, round(1/(10*0.05))) = 2.
+  EXPECT_EQ(node_->effective_odom_rate(), 1.0 / (2 * 0.05));
+}
+
+// ─── Per-sensor scheduler registration ──────────────────────────────────────
+
+// After configuring with a laser at 5 Hz and a sonar at 10 Hz, the scheduler
+// must reflect those rates for the respective sensor indices.
+TEST_F(RobotNodeTest, PerSensorRegistrationFromConfig)
+{
+  stdr_simulation::RobotConfig config;
+  config.kinematic_model.type = "ideal";
+
+  stdr_simulation::LaserConfig laser;
+  laser.frequency = 5.0;
+  laser.frame_id = "laser0";
+  config.laser_sensors.push_back(laser);
+
+  stdr_simulation::SonarConfig sonar;
+  sonar.frequency = 10.0;
+  sonar.frame_id = "sonar0";
+  config.sonar_sensors.push_back(sonar);
+
+  node_->configure(config);
+
+  // Effective laser rate with default dt=0.1: period = max(1, round(1/(5*0.1))) = 2 → 5 Hz.
+  EXPECT_DOUBLE_EQ(node_->effective_laser_rate(0), 5.0);
+  // Effective sonar rate: period = max(1, round(1/(10*0.1))) = 1 → 10 Hz.
+  EXPECT_DOUBLE_EQ(node_->effective_sonar_rate(0), 10.0);
 }
 
 }  // namespace

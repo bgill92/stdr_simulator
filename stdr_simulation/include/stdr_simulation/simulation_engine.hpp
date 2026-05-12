@@ -20,8 +20,8 @@
 namespace stdr_simulation
 {
 
-/** Default sim step duration in seconds — matches the nav-stack convention. */
-inline constexpr double kDefaultStepDt = 0.1;
+// kDefaultStepDt, kMinStepDt, and kMaxStepDt are defined in rate_scheduler.hpp
+// (included above) and are part of the stdr_simulation namespace.
 
 /** Sensor data for a single robot, populated by step(). */
 struct RobotSensorData

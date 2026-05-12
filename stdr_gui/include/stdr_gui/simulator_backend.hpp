@@ -21,13 +21,15 @@
 namespace stdr_gui
 {
 
-inline constexpr double kMinStepDt = 0.001;
-inline constexpr double kMaxStepDt = 1.0;
+inline constexpr double kMinStepDt = stdr_simulation::kMinStepDt;
+inline constexpr double kMaxStepDt = stdr_simulation::kMaxStepDt;
 inline constexpr double kDefaultStepDt = stdr_simulation::kDefaultStepDt;
-inline constexpr double kDefaultTfRate = 50.0;
-inline constexpr double kDefaultOdomRate = 10.0;
-inline constexpr double kMinRateHz = 0.0;
-inline constexpr double kMaxRateHz = 1000.0;
+// Rate constants aliased from stdr_simulation so both the ROS2 robot node and
+// the GUI backend can reference them from a single definition.
+inline constexpr double kDefaultTfRate = stdr_simulation::kDefaultTfRateHz;
+inline constexpr double kDefaultOdomRate = stdr_simulation::kDefaultOdomRateHz;
+inline constexpr double kMinRateHz = stdr_simulation::kMinRateHz;
+inline constexpr double kMaxRateHz = stdr_simulation::kMaxRateHz;
 
 /** @brief Thread-safe snapshot of simulation state for the GUI to render.
  *

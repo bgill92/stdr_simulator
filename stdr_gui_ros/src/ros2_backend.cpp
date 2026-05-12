@@ -144,10 +144,9 @@ void Ros2Backend::set_speed(double /*multiplier*/)
 
 void Ros2Backend::set_step_dt(double seconds)
 {
-  // Stored locally; ROS2 propagation to robot/server parameters is deferred.
-  // FIXME-CLAUDE: NOT IMPLEMENTED - propagate set_step_dt to ROS2 robot/server parameters.
   const double clamped = std::clamp(seconds, stdr_gui::kMinStepDt, stdr_gui::kMaxStepDt);
   step_dt_.store(clamped, std::memory_order_relaxed);
+  propagate_parameter("sim_step_dt", clamped);
 }
 
 double Ros2Backend::get_step_dt() const
@@ -157,9 +156,9 @@ double Ros2Backend::get_step_dt() const
 
 void Ros2Backend::set_tf_rate(double hz)
 {
-  // Stored locally; ROS2 propagation to per-robot parameter clients is not yet implemented.
   const double clamped = std::clamp(hz, stdr_gui::kMinRateHz, stdr_gui::kMaxRateHz);
   tf_rate_.store(clamped, std::memory_order_relaxed);
+  propagate_parameter("tf_rate", clamped);
 }
 
 double Ros2Backend::get_tf_rate() const
@@ -169,14 +168,44 @@ double Ros2Backend::get_tf_rate() const
 
 void Ros2Backend::set_odom_rate(double hz)
 {
-  // Stored locally; ROS2 propagation to per-robot parameter clients is not yet implemented.
   const double clamped = std::clamp(hz, stdr_gui::kMinRateHz, stdr_gui::kMaxRateHz);
   odom_rate_.store(clamped, std::memory_order_relaxed);
+  propagate_parameter("odom_rate", clamped);
 }
 
 double Ros2Backend::get_odom_rate() const
 {
   return odom_rate_.load(std::memory_order_relaxed);
+}
+
+// ─── Parameter propagation ────────────────────────────────────────────────────
+
+void Ros2Backend::propagate_parameter(const std::string& param_name, double value)
+{
+  // Snapshot the client list under the lock so we don't hold it during the
+  // async calls, which may spin the executor.
+  std::vector<rclcpp::AsyncParametersClient::SharedPtr> clients;
+  {
+    const std::lock_guard<std::mutex> lock(snapshot_mutex_);
+    clients.reserve(param_clients_.size());
+    for (const auto& [name, client] : param_clients_)
+    {
+      clients.push_back(client);
+    }
+  }
+
+  for (const rclcpp::AsyncParametersClient::SharedPtr& client : clients)
+  {
+    if (!client->service_is_ready())
+    {
+      RCLCPP_WARN(node_->get_logger(), "Parameter service not ready for a robot node; skipping '%s' update.",
+                  param_name.c_str());
+      continue;
+    }
+    // Fire-and-forget: let the future destruct without awaiting. The request
+    // has already been sent before the future destructs.
+    std::ignore = client->set_parameters({ rclcpp::Parameter(param_name, value) });
+  }
 }
 
 // ─── Robot pose (per-robot service call) ─────────────────────────────────────
@@ -622,6 +651,7 @@ void Ros2Backend::on_active_robots(const stdr_msgs::msg::RobotIndexedVectorMsg::
       latest_cmd_vel_.erase(name);
       cmd_vel_pubs_.erase(name);
       move_robot_clients_.erase(name);
+      param_clients_.erase(name);
     }
 
     // Build the new robot_states_ vector and create odom subs for new robots.
@@ -663,6 +693,15 @@ void Ros2Backend::on_active_robots(const stdr_msgs::msg::RobotIndexedVectorMsg::
                 });
         odom_subs_[robot_name] = sub;
         latest_pose_[robot_name] = state.config.initial_pose;
+
+        // Create an AsyncParametersClient targeting this robot's node.  Each
+        // robot runs as a separate process with the hardcoded node name
+        // "stdr_robot" (see StdrRobotNode constructor).  With a single robot
+        // this resolves unambiguously to /stdr_robot.  With multiple robots each
+        // in its own process they share the same node name, so parameter calls
+        // will fan out to all of them — acceptable because they share the same
+        // sim_step_dt / tf_rate / odom_rate policy.
+        param_clients_[robot_name] = std::make_shared<rclcpp::AsyncParametersClient>(node_, std::string("stdr_robot"));
       }
 
       new_states.push_back(std::move(state));
