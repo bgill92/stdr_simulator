@@ -48,6 +48,7 @@ ros-jazzy-ros2run = ">=0.32.8,<0.33"
 ros-jazzy-ros2service = ">=0.32.8,<0.33"
 ros-jazzy-ros2topic = ">=0.32.8,<0.33"
 ros-jazzy-rviz2 = "*"
+ros-jazzy-ros2param = ">=0.32.8,<0.33"
 
 [activation.env]
 STDR_RESOURCES_DIR = "$PIXI_PROJECT_ROOT/stdr_resources/resources"

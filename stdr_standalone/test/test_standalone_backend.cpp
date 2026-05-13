@@ -40,6 +40,13 @@ std::string laser_robot_path()
   return std::string(STDR_TEST_DIR) + "/test_laser_robot.yaml";
 }
 
+// test_laser_robot_5hz.yaml is the same as test_laser_robot.yaml but with
+// frequency: 5 so the laser fires every 2nd tick at dt=0.1.
+std::string laser_robot_5hz_path()
+{
+  return std::string(STDR_TEST_DIR) + "/test_laser_robot_5hz.yaml";
+}
+
 // test_polygon_robot.yaml is a minimal inline robot config with a square
 // polygon footprint (four 0.2 m corners) and no sensors.
 std::string polygon_robot_path()
@@ -650,6 +657,155 @@ TEST(StandaloneBackendCommandQueue, UnknownRobotTeleportCommandDoesNotCrash)
 
   const auto snapshot = backend.get_snapshot();
   ASSERT_NE(snapshot, nullptr);
+}
+
+// ── Rate control: TF and odom rates ─────────────────────────────────────────
+
+TEST(StandaloneBackendRates, DefaultTfRateIsKDefaultTfRate)
+{
+  StandaloneBackend backend;
+  EXPECT_DOUBLE_EQ(backend.get_tf_rate(), stdr_gui::kDefaultTfRate);
+}
+
+TEST(StandaloneBackendRates, DefaultOdomRateIsKDefaultOdomRate)
+{
+  StandaloneBackend backend;
+  EXPECT_DOUBLE_EQ(backend.get_odom_rate(), stdr_gui::kDefaultOdomRate);
+}
+
+TEST(StandaloneBackendRates, SetTfRateClampsBelowMin)
+{
+  StandaloneBackend backend;
+  backend.set_tf_rate(-10.0);
+  EXPECT_DOUBLE_EQ(backend.get_tf_rate(), stdr_gui::kMinRateHz);
+}
+
+TEST(StandaloneBackendRates, SetTfRateClampsAboveMax)
+{
+  StandaloneBackend backend;
+  backend.set_tf_rate(9999.0);
+  EXPECT_DOUBLE_EQ(backend.get_tf_rate(), stdr_gui::kMaxRateHz);
+}
+
+TEST(StandaloneBackendRates, SetOdomRateClampsBelowMin)
+{
+  StandaloneBackend backend;
+  backend.set_odom_rate(-1.0);
+  EXPECT_DOUBLE_EQ(backend.get_odom_rate(), stdr_gui::kMinRateHz);
+}
+
+TEST(StandaloneBackendRates, SetOdomRateClampsAboveMax)
+{
+  StandaloneBackend backend;
+  backend.set_odom_rate(2000.0);
+  EXPECT_DOUBLE_EQ(backend.get_odom_rate(), stdr_gui::kMaxRateHz);
+}
+
+// After setting odom_rate=5.0 with step_dt=0.1, effective rate should be 5 Hz
+// because period_ticks = round(1/(5*0.1)) = 2 → effective = 1/(2*0.1) = 5.0.
+TEST(StandaloneBackendRates, OdomRateGetterReturnsSetValue)
+{
+  StandaloneBackend backend;
+  std::ignore = backend.load_map(map_path());
+  const std::string name = backend.spawn_robot(robot_path(), { 1.0, 1.0, 0.0 }).value();
+
+  backend.set_step_dt(0.1);
+  backend.set_odom_rate(5.0);
+
+  // Effective rate is exposed via the engine; use get_laser_rate/get_sonar_rate
+  // for sensor streams.  For odom there is no direct getter on the backend, but
+  // we can verify via the tf/odom rate accessors that the stored value is correct.
+  EXPECT_DOUBLE_EQ(backend.get_odom_rate(), 5.0);
+  // Indirectly confirm the engine uses it: get_laser_rate on a missing sensor is 0.
+  EXPECT_DOUBLE_EQ(backend.get_laser_rate(name, 42), 0.0);
+}
+
+// ── Effective TF / odom rates via engine ────────────────────────────────────
+
+// With no robots the backend falls back to the formula-derived value.
+// step_dt=0.1, tf_rate=5 Hz → period_ticks=2 → effective=5 Hz.
+TEST(StandaloneBackendRates, EffectiveTfRateNoRobotsMatchesFormula)
+{
+  StandaloneBackend backend;
+  backend.set_step_dt(0.1);
+  backend.set_tf_rate(5.0);
+
+  EXPECT_DOUBLE_EQ(backend.get_effective_tf_rate(), 5.0);
+}
+
+// With a spawned robot the backend queries the engine's scheduler.
+// step_dt=0.1, tf_rate=5 Hz → period_ticks=2 → effective=5 Hz.
+TEST(StandaloneBackendRates, EffectiveTfRateReportsEngineValue)
+{
+  StandaloneBackend backend;
+  backend.set_step_dt(0.1);
+  backend.set_tf_rate(5.0);
+
+  // Spawn after setting rates so the scheduler sees the configured period.
+  std::ignore = backend.spawn_robot(robot_path(), { 1.0, 1.0, 0.0 }).value();
+
+  // Engine reports the same value as the formula when the target fits an
+  // integer multiple of step_dt.
+  EXPECT_DOUBLE_EQ(backend.get_effective_tf_rate(), 5.0);
+}
+
+// With no robots the backend falls back to the formula-derived value.
+// step_dt=0.1, odom_rate=10 Hz → period_ticks=1 → effective=10 Hz.
+TEST(StandaloneBackendRates, EffectiveOdomRateNoRobotsMatchesFormula)
+{
+  StandaloneBackend backend;
+  backend.set_step_dt(0.1);
+  backend.set_odom_rate(10.0);
+
+  EXPECT_DOUBLE_EQ(backend.get_effective_odom_rate(), 10.0);
+}
+
+// With a spawned robot the backend queries the engine's scheduler.
+TEST(StandaloneBackendRates, EffectiveOdomRateReportsEngineValue)
+{
+  StandaloneBackend backend;
+  backend.set_step_dt(0.1);
+  backend.set_odom_rate(10.0);
+
+  std::ignore = backend.spawn_robot(robot_path(), { 1.0, 1.0, 0.0 }).value();
+
+  EXPECT_DOUBLE_EQ(backend.get_effective_odom_rate(), 10.0);
+}
+
+// With laser frequency=5 Hz and dt=0.1, the laser should fire ~10 times in 20 ticks
+// (2 s sim time).  We measure via laser_publish_count with a loose upper bound to
+// tolerate wall-clock scheduling jitter.
+TEST(StandaloneBackendRates, LaserFiresAtConfiguredRate)
+{
+  StandaloneBackend backend;
+  std::ignore = backend.load_map(map_path());
+
+  // test_laser_robot_5hz.yaml: frequency: 5 → period_ticks=2 at dt=0.1.
+  const std::string name = backend.spawn_robot(laser_robot_5hz_path(), { 1.0, 1.0, 0.0 }).value();
+
+  // Run until sim_time >= 2.0 s (20 ticks at dt=0.1) with a 10 s wall-clock
+  // timeout to avoid hanging CI.
+  backend.start();
+  const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+  while (backend.sim_time() < 2.0 && std::chrono::steady_clock::now() < deadline)
+  {
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+  }
+  backend.pause();
+
+  const std::string key = name + "/laser_0";
+  const std::size_t count = backend.laser_publish_count(key);
+  // 20 ticks ÷ period 2 = 10 firings.  Allow ±2 for timing imprecision.
+  EXPECT_GE(count, 8u);
+  EXPECT_LE(count, 12u);
+}
+
+// ── publishes_ros_topics ─────────────────────────────────────────────────────
+
+TEST(StandaloneBackendPublishesRosTopics, ReturnsFalse)
+{
+  StandaloneBackend backend;
+  EXPECT_FALSE(backend.publishes_ros_topics());
 }
 
 }  // namespace

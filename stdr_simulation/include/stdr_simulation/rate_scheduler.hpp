@@ -13,6 +13,27 @@
 namespace stdr_simulation
 {
 
+/** Default sim step duration in seconds — matches the nav-stack convention. */
+inline constexpr double kDefaultStepDt = 0.1;
+
+/** Lower bound for sim step dt in seconds. */
+inline constexpr double kMinStepDt = 0.001;
+
+/** Upper bound for sim step dt in seconds. */
+inline constexpr double kMaxStepDt = 1.0;
+
+/** Default TF broadcast rate in Hz — nav-stack convention. */
+inline constexpr double kDefaultTfRateHz = 50.0;
+
+/** Default odometry publish rate in Hz — typical mobile-base driver value. */
+inline constexpr double kDefaultOdomRateHz = 10.0;
+
+/** Lower bound for per-stream rates; 0 means "every sim tick". */
+inline constexpr double kMinRateHz = 0.0;
+
+/** Upper bound for per-stream rates. */
+inline constexpr double kMaxRateHz = 1000.0;
+
 /** Stream identifiers for rate scheduling. */
 enum class StreamKind
 {

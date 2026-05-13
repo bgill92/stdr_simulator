@@ -6,6 +6,7 @@ find_package(ament_index_cpp REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(rclcpp_action REQUIRED)
 find_package(rclcpp_components REQUIRED)
+find_package(rcl_interfaces REQUIRED)
 find_package(tf2 REQUIRED)
 find_package(tf2_ros REQUIRED)
 find_package(nav_msgs REQUIRED)
@@ -37,7 +38,8 @@ target_link_libraries(
          ${geometry_msgs_TARGETS}
          ${stdr_msgs_TARGETS__rosidl_typesupport_cpp}
          stdr_simulation::stdr_simulation
-         stdr_parser::stdr_parser)
+         stdr_parser::stdr_parser
+  PRIVATE ${rcl_interfaces_TARGETS})
 
 rclcpp_components_register_node(
   ${PROJECT_NAME} PLUGIN "stdr_robot::StdrRobotNode" EXECUTABLE stdr_robot_node)

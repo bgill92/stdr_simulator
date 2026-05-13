@@ -9,6 +9,7 @@
 #include <geometry_msgs/msg/twist.hpp>
 #include <nav_msgs/msg/occupancy_grid.hpp>
 #include <nav_msgs/msg/odometry.hpp>
+#include <rclcpp/parameter_event_handler.hpp>
 #include <rclcpp/rclcpp.hpp>
 #include <sensor_msgs/msg/laser_scan.hpp>
 #include <sensor_msgs/msg/range.hpp>
@@ -58,6 +59,10 @@ public:
   void set_speed(double multiplier) override;
   void set_step_dt(double seconds) override;
   [[nodiscard]] double get_step_dt() const override;
+  void set_tf_rate(double hz) override;
+  [[nodiscard]] double get_tf_rate() const override;
+  void set_odom_rate(double hz) override;
+  [[nodiscard]] double get_odom_rate() const override;
   void set_robot_pose(const std::string& name, const stdr_simulation::Pose2D& pose) override;
   void set_cmd_vel(const std::string& robot_name, const stdr_simulation::Twist2D& cmd) override;
   [[nodiscard]] std::shared_ptr<const stdr_gui::SimulationSnapshot> get_snapshot() const override;
@@ -91,8 +96,24 @@ public:
    *  StandaloneBackend's monotonic elapsed_time_ accumulator. */
   [[nodiscard]] double sim_time() const override;
 
+  /** @brief Always true — robot nodes publish TF and odometry in ROS2 mode. */
+  [[nodiscard]] bool publishes_ros_topics() const override
+  {
+    return true;
+  }
+
 private:
   void push_message(std::string msg);
+
+  /**
+   * @brief Fire-and-forget async parameter set on all known robot nodes.
+   *
+   * Takes a snapshot of param_clients_ under snapshot_mutex_, then sends
+   * set_parameters() on each client that is service-ready.  Clients that are
+   * not yet ready are skipped with a WARN log; the GUI initiating the call is
+   * still considered successful.
+   */
+  void propagate_parameter(const std::string& param_name, double value);
 
   // Subscription callbacks — all called on the executor thread.
   void on_map(const nav_msgs::msg::OccupancyGrid::SharedPtr msg);
@@ -163,6 +184,22 @@ private:
   // Lazily-created LoadMap client.
   rclcpp::Client<stdr_msgs::srv::LoadMap>::SharedPtr load_map_client_;
 
+  // Per-robot AsyncParametersClient for propagating rate parameters.  Created
+  // lazily when a robot first appears in on_active_robots().  Keyed by robot
+  // name.
+  // Guarded by snapshot_mutex_. Mutated in on_active_robots(); snapshotted in propagate_parameter().
+  std::unordered_map<std::string, rclcpp::AsyncParametersClient::SharedPtr> param_clients_;
+
+  // Shared ParameterEventHandler that listens for external parameter changes on
+  // all robot nodes.  A single handler instance can hold subscriptions for many
+  // remote nodes.  Created once in the constructor.
+  std::shared_ptr<rclcpp::ParameterEventHandler> param_event_handler_;
+
+  // Per-robot callback handles for sim_step_dt / tf_rate / odom_rate.  Stored
+  // so they can be destroyed (removing the subscription) when a robot disappears.
+  // Guarded by snapshot_mutex_; populated/erased in on_active_robots().
+  std::unordered_map<std::string, std::vector<rclcpp::ParameterCallbackHandle::SharedPtr>> param_event_subs_;
+
   // ── Sensor rings and latest snapshots (sensor_ring_mutex_) ────────────────
   //
   // Lock discipline in on_active_robots() — four phases, never two locks at once:
@@ -171,8 +208,9 @@ private:
   //     state; no mutex is needed.
   //   Phase 2 (sensor_ring_mutex_ only): erase latest_laser_, laser_rings_,
   //     latest_sonar_, and sonar_rings_ entries for robots that disappeared.
-  //   Phase 3 (snapshot_mutex_ only): update robot_states_, odom_subs_, and
-  //     other snapshot state for the new robot set.
+  //   Phase 3 (snapshot_mutex_ only): update robot_states_, odom_subs_,
+  //     param_clients_, param_event_subs_, and other snapshot state for the
+  //     new robot set.  add_parameter_callback calls also happen here.
   //   Phase 4 (no lock): create new laser and sonar subscriptions on the
   //     executor thread.
   //
@@ -206,6 +244,9 @@ private:
 
   // ── Thread-safe atomic fields ───────────────────────────────────────────────
   std::atomic<double> step_dt_{ stdr_gui::kDefaultStepDt };
+  // TF/odom rates stored locally; full propagation to robot nodes is Phase E.
+  std::atomic<double> tf_rate_{ stdr_gui::kDefaultTfRate };
+  std::atomic<double> odom_rate_{ stdr_gui::kDefaultOdomRate };
 
   // Shared flag cleared in the destructor so async callbacks can detect
   // backend teardown before touching member state.

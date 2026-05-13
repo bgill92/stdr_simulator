@@ -85,6 +85,24 @@ public:
     return 0.1;
   }
 
+  void set_tf_rate(double /*hz*/) override
+  {
+  }
+
+  [[nodiscard]] double get_tf_rate() const override
+  {
+    return stdr_gui::kDefaultTfRate;
+  }
+
+  void set_odom_rate(double /*hz*/) override
+  {
+  }
+
+  [[nodiscard]] double get_odom_rate() const override
+  {
+    return stdr_gui::kDefaultOdomRate;
+  }
+
   void set_robot_pose(const std::string& /*name*/, const stdr_simulation::Pose2D& /*pose*/) override
   {
   }

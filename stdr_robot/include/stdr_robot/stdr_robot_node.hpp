@@ -6,6 +6,7 @@
 #include <stdr_simulation/geometry_utils.hpp>
 #include <stdr_simulation/motion/ideal_motion_model.hpp>
 #include <stdr_simulation/motion/omni_motion_model.hpp>
+#include <stdr_simulation/rate_scheduler.hpp>
 #include <stdr_simulation/sensors/co2_simulator.hpp>
 #include <stdr_simulation/sensors/laser_simulator.hpp>
 #include <stdr_simulation/sensors/rfid_simulator.hpp>
@@ -36,6 +37,7 @@
 #include <stdr_msgs/msg/thermal_source_vector.hpp>
 #include <stdr_msgs/srv/move_robot.hpp>
 
+#include <mutex>
 #include <optional>
 #include <string>
 #include <vector>
@@ -56,6 +58,20 @@ public:
    */
   void configure(const stdr_simulation::RobotConfig& config);
 
+  // --- Rate accessors (for testing) ---
+
+  /** @return Effective TF broadcast rate in Hz (post-snap). */
+  [[nodiscard]] double effective_tf_rate() const;
+
+  /** @return Effective odometry publish rate in Hz (post-snap). */
+  [[nodiscard]] double effective_odom_rate() const;
+
+  /** @return Effective laser sensor rate in Hz for the given index (post-snap). */
+  [[nodiscard]] double effective_laser_rate(std::size_t index) const;
+
+  /** @return Effective sonar sensor rate in Hz for the given index (post-snap). */
+  [[nodiscard]] double effective_sonar_rate(std::size_t index) const;
+
 private:
   using RegisterRobot = stdr_msgs::action::RegisterRobot;
 
@@ -65,8 +81,9 @@ private:
   // --- Motion integration ---
   void integrate_motion(double dt);
 
-  // --- Sensor simulation ---
-  void simulate_sensors(const rclcpp::Time& stamp);
+  // --- Per-sensor simulation helpers ---
+  void simulate_laser(std::size_t index, const rclcpp::Time& stamp);
+  void simulate_sonar(std::size_t index, const rclcpp::Time& stamp);
 
   // --- Callbacks ---
   void on_map(const nav_msgs::msg::OccupancyGrid::SharedPtr msg);
@@ -86,9 +103,32 @@ private:
   // --- Setup (called after config is available) ---
   void setup_publishers_and_tf();
 
+  // --- Register sensor streams with the scheduler ---
+  void register_scheduler_streams();
+
   // --- Publishing ---
   void publish_odometry(const rclcpp::Time& stamp);
   void broadcast_robot_tf(const rclcpp::Time& stamp);
+
+  // --- Rate parameters: read in the constructor and kept in sync by the param callback ---
+  double sim_step_dt_{ stdr_simulation::kDefaultStepDt };
+  double tf_rate_{ stdr_simulation::kDefaultTfRateHz };
+  double odom_rate_{ stdr_simulation::kDefaultOdomRateHz };
+
+  // --- Rate scheduler ---
+  // Initialized with sim_step_dt_ after the param is read in the constructor.
+  // Streams are registered after setup_publishers_and_tf() populates config_.
+  stdr_simulation::RateScheduler scheduler_;
+
+  // Guards sim_timer_ recreation from the parameter callback.  Does NOT need to
+  // be held inside simulation_step() because the default MutuallyExclusiveCallbackGroup
+  // ensures the param callback and simulation_step() are never concurrent.
+  std::mutex timer_mutex_;
+
+  // Keeps the parameter callback active for the lifetime of the node.  rclcpp
+  // weak-references the callback handle; if the handle is destroyed, the callback
+  // is silently unregistered.
+  rclcpp::node_interfaces::OnSetParametersCallbackHandle::SharedPtr param_callback_handle_;
 
   // --- State ---
   std::string robot_name_;

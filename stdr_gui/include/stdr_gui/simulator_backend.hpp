@@ -9,6 +9,7 @@
 #include <tl_expected/expected.hpp>
 
 #include <algorithm>
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <memory>
@@ -21,9 +22,15 @@
 namespace stdr_gui
 {
 
-inline constexpr double kMinStepDt = 0.001;
-inline constexpr double kMaxStepDt = 1.0;
-inline constexpr double kDefaultStepDt = 0.1;
+inline constexpr double kMinStepDt = stdr_simulation::kMinStepDt;
+inline constexpr double kMaxStepDt = stdr_simulation::kMaxStepDt;
+inline constexpr double kDefaultStepDt = stdr_simulation::kDefaultStepDt;
+// Rate constants aliased from stdr_simulation so both the ROS2 robot node and
+// the GUI backend can reference them from a single definition.
+inline constexpr double kDefaultTfRate = stdr_simulation::kDefaultTfRateHz;
+inline constexpr double kDefaultOdomRate = stdr_simulation::kDefaultOdomRateHz;
+inline constexpr double kMinRateHz = stdr_simulation::kMinRateHz;
+inline constexpr double kMaxRateHz = stdr_simulation::kMaxRateHz;
 
 /** @brief Thread-safe snapshot of simulation state for the GUI to render.
  *
@@ -125,6 +132,92 @@ public:
 
   /** @brief Current simulation step duration in seconds. */
   [[nodiscard]] virtual double get_step_dt() const = 0;
+
+  /**
+   * @brief Set the TF broadcast rate for all robots.
+   *
+   * Implementations must clamp to [kMinRateHz, kMaxRateHz].
+   * A value of 0 means "every sim tick".
+   */
+  virtual void set_tf_rate(double hz) = 0;
+
+  /** @brief Current TF broadcast rate in Hz. */
+  [[nodiscard]] virtual double get_tf_rate() const = 0;
+
+  /**
+   * @brief Set the odometry publish rate for all robots.
+   *
+   * Implementations must clamp to [kMinRateHz, kMaxRateHz].
+   * A value of 0 means "every sim tick".
+   */
+  virtual void set_odom_rate(double hz) = 0;
+
+  /** @brief Current odometry publish rate in Hz. */
+  [[nodiscard]] virtual double get_odom_rate() const = 0;
+
+  /**
+   * @brief Effective laser sensor rate for a specific instance on a robot.
+   *
+   * Returns 0.0 if the robot or sensor index is unknown.  Default
+   * implementation returns 0.0 so backends that have not yet wired this
+   * (e.g. Ros2Backend) compile without overriding.
+   */
+  [[nodiscard]] virtual double get_laser_rate(const std::string& /*robot_id*/, std::size_t /*sensor_index*/) const
+  {
+    return 0.0;
+  }
+
+  /**
+   * @brief Effective sonar sensor rate for a specific instance on a robot.
+   *
+   * Returns 0.0 if the robot or sensor index is unknown.  Default
+   * implementation returns 0.0 so backends that have not yet wired this
+   * compile without overriding.
+   */
+  [[nodiscard]] virtual double get_sonar_rate(const std::string& /*robot_id*/, std::size_t /*sensor_index*/) const
+  {
+    return 0.0;
+  }
+
+  /**
+   * @brief Effective TF rate after snap-to-tick quantisation (1 / (period_ticks * step_dt)).
+   *
+   * The default implementation derives the effective rate from the target
+   * rate and step_dt using the same rounding rule as RateScheduler.  Backends
+   * that own a scheduler (e.g. StandaloneBackend) may override to return the
+   * canonical engine value for a specific robot.
+   */
+  [[nodiscard]] virtual double get_effective_tf_rate() const
+  {
+    const double target = get_tf_rate();
+    const double dt = get_step_dt();
+    if (target <= 0.0 || dt <= 0.0)
+    {
+      return 0.0;
+    }
+    // Use std::round to match RateScheduler exactly: period_ticks = max(1, round(1 / (target * dt))).
+    const double raw_period = 1.0 / (target * dt);
+    const std::size_t period_ticks = std::max<std::size_t>(1, static_cast<std::size_t>(std::round(raw_period)));
+    return 1.0 / (static_cast<double>(period_ticks) * dt);
+  }
+
+  /**
+   * @brief Effective odom rate after snap-to-tick quantisation (1 / (period_ticks * step_dt)).
+   *
+   * Same semantics as get_effective_tf_rate().
+   */
+  [[nodiscard]] virtual double get_effective_odom_rate() const
+  {
+    const double target = get_odom_rate();
+    const double dt = get_step_dt();
+    if (target <= 0.0 || dt <= 0.0)
+    {
+      return 0.0;
+    }
+    const double raw_period = 1.0 / (target * dt);
+    const std::size_t period_ticks = std::max<std::size_t>(1, static_cast<std::size_t>(std::round(raw_period)));
+    return 1.0 / (static_cast<double>(period_ticks) * dt);
+  }
 
   /** @brief Teleport a robot to a new pose (e.g. drag-and-drop). */
   virtual void set_robot_pose(const std::string& name, const stdr_simulation::Pose2D& pose) = 0;
@@ -245,6 +338,17 @@ public:
   [[nodiscard]] virtual double sim_time() const
   {
     return 0.0;
+  }
+
+  /** @brief True when this backend publishes TF and odometry messages.
+   *
+   *  Used by the info panel to gate display of TF/odom rate rows.  The
+   *  default returns false — standalone mode has no ROS publishers, so the
+   *  rate rows are meaningless there.  Ros2Backend overrides to return true
+   *  because robot nodes do the actual TF/odom publishing in ROS2 mode. */
+  [[nodiscard]] virtual bool publishes_ros_topics() const
+  {
+    return false;
   }
 
   // --- Sensor event log polling ---

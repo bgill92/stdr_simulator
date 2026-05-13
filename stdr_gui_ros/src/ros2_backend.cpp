@@ -1,5 +1,7 @@
 #include "stdr_gui_ros/ros2_backend.hpp"
 
+#include <rclcpp/parameter_event_handler.hpp>
+
 #include <stdr_gui/simulator_backend.hpp>
 #include <stdr_parser/msg_conversions.hpp>
 #include <stdr_simulation/plot_data/spsc_ring.hpp>
@@ -22,7 +24,10 @@ namespace stdr_gui_ros
 {
 
 Ros2Backend::Ros2Backend(std::shared_ptr<rclcpp::Node> node)
-  : node_(std::move(node)), start_time_(node_->now()), alive_(std::make_shared<std::atomic<bool>>(true))
+  : node_(std::move(node))
+  , start_time_(node_->now())
+  , alive_(std::make_shared<std::atomic<bool>>(true))
+  , param_event_handler_(std::make_shared<rclcpp::ParameterEventHandler>(node_))
 {
   // Transient local (latched) QoS to match stdr_server publishers, so a
   // late-joining GUI still receives the current map and robot list immediately.
@@ -144,15 +149,68 @@ void Ros2Backend::set_speed(double /*multiplier*/)
 
 void Ros2Backend::set_step_dt(double seconds)
 {
-  // Stored locally; ROS2 propagation to robot/server parameters is deferred.
-  // FIXME-CLAUDE: NOT IMPLEMENTED - propagate set_step_dt to ROS2 robot/server parameters.
   const double clamped = std::clamp(seconds, stdr_gui::kMinStepDt, stdr_gui::kMaxStepDt);
   step_dt_.store(clamped, std::memory_order_relaxed);
+  propagate_parameter("sim_step_dt", clamped);
 }
 
 double Ros2Backend::get_step_dt() const
 {
   return step_dt_.load(std::memory_order_relaxed);
+}
+
+void Ros2Backend::set_tf_rate(double hz)
+{
+  const double clamped = std::clamp(hz, stdr_gui::kMinRateHz, stdr_gui::kMaxRateHz);
+  tf_rate_.store(clamped, std::memory_order_relaxed);
+  propagate_parameter("tf_rate", clamped);
+}
+
+double Ros2Backend::get_tf_rate() const
+{
+  return tf_rate_.load(std::memory_order_relaxed);
+}
+
+void Ros2Backend::set_odom_rate(double hz)
+{
+  const double clamped = std::clamp(hz, stdr_gui::kMinRateHz, stdr_gui::kMaxRateHz);
+  odom_rate_.store(clamped, std::memory_order_relaxed);
+  propagate_parameter("odom_rate", clamped);
+}
+
+double Ros2Backend::get_odom_rate() const
+{
+  return odom_rate_.load(std::memory_order_relaxed);
+}
+
+// ─── Parameter propagation ────────────────────────────────────────────────────
+
+void Ros2Backend::propagate_parameter(const std::string& param_name, double value)
+{
+  // Snapshot the client list under the lock so we don't hold it during the
+  // async calls, which may spin the executor.
+  std::vector<rclcpp::AsyncParametersClient::SharedPtr> clients;
+  {
+    const std::lock_guard<std::mutex> lock(snapshot_mutex_);
+    clients.reserve(param_clients_.size());
+    for (const auto& [name, client] : param_clients_)
+    {
+      clients.push_back(client);
+    }
+  }
+
+  for (const rclcpp::AsyncParametersClient::SharedPtr& client : clients)
+  {
+    if (!client->service_is_ready())
+    {
+      RCLCPP_WARN(node_->get_logger(), "Parameter service not ready for a robot node; skipping '%s' update.",
+                  param_name.c_str());
+      continue;
+    }
+    // Fire-and-forget: let the future destruct without awaiting. The request
+    // has already been sent before the future destructs.
+    std::ignore = client->set_parameters({ rclcpp::Parameter(param_name, value) });
+  }
 }
 
 // ─── Robot pose (per-robot service call) ─────────────────────────────────────
@@ -598,6 +656,11 @@ void Ros2Backend::on_active_robots(const stdr_msgs::msg::RobotIndexedVectorMsg::
       latest_cmd_vel_.erase(name);
       cmd_vel_pubs_.erase(name);
       move_robot_clients_.erase(name);
+      param_clients_.erase(name);
+      // Erasing the handles de-registers the parameter event callbacks for
+      // this robot.  The ParameterEventHandler weak-references each handle,
+      // so destruction here is sufficient.
+      param_event_subs_.erase(name);
     }
 
     // Build the new robot_states_ vector and create odom subs for new robots.
@@ -639,6 +702,158 @@ void Ros2Backend::on_active_robots(const stdr_msgs::msg::RobotIndexedVectorMsg::
                 });
         odom_subs_[robot_name] = sub;
         latest_pose_[robot_name] = state.config.initial_pose;
+
+        // Create an AsyncParametersClient targeting this robot's own node.
+        // StdrRobotNode derives its node name from the robot_name parameter
+        // override (see node_name_from_options in stdr_robot_node.cpp), so
+        // /robot0's parameter service lives on /robot0, /robot1 on /robot1,
+        // etc.  Targeting by robot_name makes multi-robot propagation correct:
+        // set_step_dt on the GUI reaches exactly the intended robot node.
+        rclcpp::AsyncParametersClient::SharedPtr new_client =
+            std::make_shared<rclcpp::AsyncParametersClient>(node_, robot_name);
+        param_clients_[robot_name] = new_client;
+
+        // Register parameter event callbacks so external changes (e.g. via
+        // `ros2 param set`) are reflected in the backend's atomic caches.
+        // This keeps the GUI info panel accurate even when parameters are
+        // changed outside the GUI.
+        //
+        // The weak_alive guard is needed because the ParameterCallbackHandle
+        // destructor calls into the middleware, which may deliver a final
+        // callback after the backend's atomic members have been destroyed.
+        // Checking alive_ before touching any member prevents use-after-free
+        // during backend teardown.
+        std::vector<rclcpp::ParameterCallbackHandle::SharedPtr> handles;
+        const std::weak_ptr<std::atomic<bool>> weak_alive_param = alive_;
+
+        handles.push_back(param_event_handler_->add_parameter_callback(
+            "sim_step_dt",
+            [weak_alive_param, this](const rclcpp::Parameter& p) {
+              const std::shared_ptr<std::atomic<bool>> live = weak_alive_param.lock();
+              if (!live || !live->load(std::memory_order_relaxed))
+              {
+                return;
+              }
+              step_dt_.store(p.as_double(), std::memory_order_relaxed);
+            },
+            robot_name));
+
+        handles.push_back(param_event_handler_->add_parameter_callback(
+            "tf_rate",
+            [weak_alive_param, this](const rclcpp::Parameter& p) {
+              const std::shared_ptr<std::atomic<bool>> live = weak_alive_param.lock();
+              if (!live || !live->load(std::memory_order_relaxed))
+              {
+                return;
+              }
+              tf_rate_.store(p.as_double(), std::memory_order_relaxed);
+            },
+            robot_name));
+
+        handles.push_back(param_event_handler_->add_parameter_callback(
+            "odom_rate",
+            [weak_alive_param, this](const rclcpp::Parameter& p) {
+              const std::shared_ptr<std::atomic<bool>> live = weak_alive_param.lock();
+              if (!live || !live->load(std::memory_order_relaxed))
+              {
+                return;
+              }
+              odom_rate_.store(p.as_double(), std::memory_order_relaxed);
+            },
+            robot_name));
+
+        param_event_subs_[robot_name] = std::move(handles);
+
+        // One-shot seed: read the robot's current parameter values so the GUI
+        // reflects actuals rather than defaults on first render.
+        //
+        // service_is_ready() alone is racy: the param service may not be
+        // discoverable yet immediately after the robot node starts.  Instead,
+        // we install a 50 ms retry timer that checks once per tick and
+        // self-cancels after the first successful get_parameters call or after
+        // kMaxSeedAttempts retries.  This closes the race without busy-waiting
+        // while remaining cheap (50 ms ticks, at most 20 attempts = 1 s max).
+        constexpr int kMaxSeedAttempts = 20;
+        // Shared attempt counter so the lambda owns its own lifetime without
+        // needing to reach into a container.
+        const std::shared_ptr<int> attempt_count = std::make_shared<int>(0);
+        const std::weak_ptr<std::atomic<bool>> weak_alive_seed = alive_;
+
+        // Use a shared_ptr to hold the timer handle so the lambda can cancel
+        // it by resetting the pointer.  The outer shared_ptr is captured by
+        // value; the inner weak_ptr breaks the self-referential cycle.
+        const std::shared_ptr<rclcpp::TimerBase::SharedPtr> timer_holder =
+            std::make_shared<rclcpp::TimerBase::SharedPtr>();
+        std::weak_ptr<rclcpp::TimerBase::SharedPtr> weak_timer_holder = timer_holder;
+
+        *timer_holder =
+            node_->create_wall_timer(std::chrono::milliseconds(50), [this, robot_name, new_client, attempt_count,
+                                                                     weak_alive_seed, weak_timer_holder]() {
+              // Cancel if the backend has been destroyed.
+              const std::shared_ptr<std::atomic<bool>> live = weak_alive_seed.lock();
+              if (!live || !live->load(std::memory_order_relaxed))
+              {
+                if (const std::shared_ptr<rclcpp::TimerBase::SharedPtr> th = weak_timer_holder.lock())
+                {
+                  (*th)->cancel();
+                }
+                return;
+              }
+
+              ++(*attempt_count);
+              if (*attempt_count > kMaxSeedAttempts)
+              {
+                if (const std::shared_ptr<rclcpp::TimerBase::SharedPtr> th = weak_timer_holder.lock())
+                {
+                  (*th)->cancel();
+                }
+                return;
+              }
+
+              if (!new_client->service_is_ready())
+              {
+                return;  // Not ready yet — try again next tick.
+              }
+
+              // Service is ready: fire the one-shot get_parameters and cancel.
+              if (const std::shared_ptr<rclcpp::TimerBase::SharedPtr> th = weak_timer_holder.lock())
+              {
+                (*th)->cancel();
+              }
+
+              std::ignore = new_client->get_parameters(
+                  { "sim_step_dt", "tf_rate", "odom_rate" },
+                  [this, weak_alive_seed, robot_name](std::shared_future<std::vector<rclcpp::Parameter>> future) {
+                    const std::shared_ptr<std::atomic<bool>> alive = weak_alive_seed.lock();
+                    if (!alive || !alive->load())
+                    {
+                      return;
+                    }
+                    try
+                    {
+                      for (const rclcpp::Parameter& p : future.get())
+                      {
+                        if (p.get_name() == "sim_step_dt")
+                        {
+                          step_dt_.store(p.as_double(), std::memory_order_relaxed);
+                        }
+                        else if (p.get_name() == "tf_rate")
+                        {
+                          tf_rate_.store(p.as_double(), std::memory_order_relaxed);
+                        }
+                        else if (p.get_name() == "odom_rate")
+                        {
+                          odom_rate_.store(p.as_double(), std::memory_order_relaxed);
+                        }
+                      }
+                    }
+                    catch (const std::exception& ex)
+                    {
+                      RCLCPP_DEBUG(node_->get_logger(), "Parameter seed for '%s' failed: %s", robot_name.c_str(),
+                                   ex.what());
+                    }
+                  });
+            });
       }
 
       new_states.push_back(std::move(state));

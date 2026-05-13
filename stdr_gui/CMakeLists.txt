@@ -116,6 +116,10 @@ if(BUILD_TESTING)
   # the test TU, not in stdr_gui_plotters).
   ament_add_gtest(test_plot_panel test/test_plot_panel.cpp)
   target_link_libraries(test_plot_panel ${PROJECT_NAME} GTest::gmock)
+
+  # SimulatorBackend default effective-rate helper tests.
+  ament_add_gtest(test_simulator_backend test/test_simulator_backend.cpp)
+  target_link_libraries(test_simulator_backend ${PROJECT_NAME} GTest::gmock)
 endif()
 
 ament_package()
