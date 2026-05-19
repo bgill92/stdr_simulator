@@ -211,6 +211,51 @@ TEST(SonarSimulatorTest, NoiseIsZeroMeanNotBiased)
   EXPECT_THAT(scan.range, DoubleNear(0.5, 0.02));
 }
 
+TEST(SonarSimulatorTest, NoHitNoiseOffReturnsInfinity)
+{
+  // Regression test for the off-by-one sentinel bug, distinct from the generic
+  // no-hit coverage in EmptyMapMaxRange.  max_range = 0.3 m with resolution 0.1 m
+  // gives max_steps = (int)(0.3 / 0.1) = 2 in IEEE arithmetic (0.3/0.1 rounds to
+  // 2.999..., which truncates to 2), so the old sentinel of max_steps+1 = 3
+  // exactly equalled one extra cell — the precise case the numeric sentinel
+  // mishandled.  The result must be exactly +infinity.
+  const SonarSimulator sim;
+  const OccupancyGrid map = make_free_grid();
+
+  SonarConfig cfg;
+  cfg.min_range = 0.1;
+  cfg.max_range = 0.3;  // Chosen for the FP-truncation corner case above.
+  cfg.cone_angle = std::numbers::pi / 4.0;
+
+  const Pose2D pose{ 0.5, 0.5, 0.0 };
+  const SonarScan scan = sim.simulate(pose, cfg, map);
+  EXPECT_TRUE(std::isinf(scan.range));
+  EXPECT_GT(scan.range, 0.0);
+}
+
+TEST(SonarSimulatorTest, NoHitNoiseOnReturnsInfinity)
+{
+  // Regression test: with noise enabled and no obstacle in range, the result
+  // must still be exactly +infinity — not a finite biased value.  The old
+  // sentinel (max_steps + 1) mapped back to max_range + resolution = 0.4 m;
+  // with std_dev = 0.05 the noise could push it below 0.4 m to a finite
+  // reading that passed the upper clamp, silently returning a bogus distance.
+  const SonarSimulator sim;
+  const OccupancyGrid map = make_free_grid();
+
+  SonarConfig cfg;
+  cfg.min_range = 0.1;
+  cfg.max_range = 0.3;  // Old sentinel mapped to 0.4 m; noise could push it finite.
+  cfg.cone_angle = std::numbers::pi / 4.0;
+  cfg.noise.enabled = true;
+  cfg.noise.std_dev = 0.05;
+
+  const Pose2D pose{ 0.5, 0.5, 0.0 };
+  const SonarScan scan = sim.simulate(pose, cfg, map);
+  EXPECT_TRUE(std::isinf(scan.range));
+  EXPECT_GT(scan.range, 0.0);
+}
+
 // ---- RfidSimulatorTest ------------------------------------------------------
 
 TEST(RfidSimulatorTest, TagInRange)
