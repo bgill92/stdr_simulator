@@ -63,6 +63,7 @@ public:
   [[nodiscard]] double get_tf_rate() const override;
   void set_odom_rate(double hz) override;
   [[nodiscard]] double get_odom_rate() const override;
+  [[nodiscard]] stdr_simulation::SchedulingMode get_scheduling_mode() const override;
   void set_robot_pose(const std::string& name, const stdr_simulation::Pose2D& pose) override;
   void set_cmd_vel(const std::string& robot_name, const stdr_simulation::Twist2D& cmd) override;
   [[nodiscard]] std::shared_ptr<const stdr_gui::SimulationSnapshot> get_snapshot() const override;
@@ -169,6 +170,16 @@ private:
   // Mirror of laser_subs_ for Range topics.
   std::unordered_map<std::string, rclcpp::Subscription<sensor_msgs::msg::Range>::SharedPtr> sonar_subs_;
 
+  // Per-robot one-shot parameter-seed retry timers, keyed by robot name.
+  // Inserted and erased in on_active_robots(); found and cancelled in the seed
+  // timer callback and the get_parameters result callback.  All access is on the
+  // single executor thread, so no dedicated mutex is required — the same
+  // discipline as laser_subs_ and sonar_subs_.  Although on_active_robots() holds
+  // snapshot_mutex_ for sibling state when it inserts or erases entries, that lock
+  // does not guard seed_timers_, and the callbacks read it without any lock; this
+  // is safe only because all access is on the single executor thread.
+  std::unordered_map<std::string, rclcpp::TimerBase::SharedPtr> seed_timers_;
+
   // Lazily-created cmd_vel publishers, keyed by robot name.
   std::unordered_map<std::string, rclcpp::Publisher<geometry_msgs::msg::Twist>::SharedPtr> cmd_vel_pubs_;
 
@@ -195,9 +206,10 @@ private:
   // remote nodes.  Created once in the constructor.
   std::shared_ptr<rclcpp::ParameterEventHandler> param_event_handler_;
 
-  // Per-robot callback handles for sim_step_dt / tf_rate / odom_rate.  Stored
-  // so they can be destroyed (removing the subscription) when a robot disappears.
-  // Guarded by snapshot_mutex_; populated/erased in on_active_robots().
+  // Per-robot callback handles for sim_step_dt / tf_rate / odom_rate /
+  // scheduling_mode.  Stored so they can be destroyed (removing the subscription)
+  // when a robot disappears.  Guarded by snapshot_mutex_; populated/erased in
+  // on_active_robots().
   std::unordered_map<std::string, std::vector<rclcpp::ParameterCallbackHandle::SharedPtr>> param_event_subs_;
 
   // ── Sensor rings and latest snapshots (sensor_ring_mutex_) ────────────────
@@ -209,8 +221,8 @@ private:
   //   Phase 2 (sensor_ring_mutex_ only): erase latest_laser_, laser_rings_,
   //     latest_sonar_, and sonar_rings_ entries for robots that disappeared.
   //   Phase 3 (snapshot_mutex_ only): update robot_states_, odom_subs_,
-  //     param_clients_, param_event_subs_, and other snapshot state for the
-  //     new robot set.  add_parameter_callback calls also happen here.
+  //     param_clients_, param_event_subs_, seed_timers_, and other snapshot
+  //     state for the new robot set.  add_parameter_callback calls also happen here.
   //   Phase 4 (no lock): create new laser and sonar subscriptions on the
   //     executor thread.
   //
@@ -247,6 +259,9 @@ private:
   // TF/odom rates stored locally; full propagation to robot nodes is Phase E.
   std::atomic<double> tf_rate_{ stdr_gui::kDefaultTfRate };
   std::atomic<double> odom_rate_{ stdr_gui::kDefaultOdomRate };
+  // Scheduling mode mirrored from the robot node's parameter so effective-rate
+  // computation in the base class branches correctly.
+  std::atomic<stdr_simulation::SchedulingMode> scheduling_mode_{ stdr_simulation::SchedulingMode::SnapToMultiple };
 
   // Shared flag cleared in the destructor so async callbacks can detect
   // backend teardown before touching member state.

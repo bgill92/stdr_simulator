@@ -233,5 +233,100 @@ TEST(SimulatorBackendPublishesRosTopics, DefaultIsFalse)
   EXPECT_FALSE(backend.publishes_ros_topics());
 }
 
+// ---------------------------------------------------------------------------
+// Stub that overrides get_scheduling_mode() to return Accumulator so the
+// default effective-rate helpers take the accumulator branch.
+// ---------------------------------------------------------------------------
+
+class AccumulatorStubBackend : public StubBackendForRateTest
+{
+public:
+  [[nodiscard]] stdr_simulation::SchedulingMode get_scheduling_mode() const override
+  {
+    return stdr_simulation::SchedulingMode::Accumulator;
+  }
+};
+
+// ---------------------------------------------------------------------------
+// Accumulator mode: effective rate = min(target, 1/dt).
+// ---------------------------------------------------------------------------
+
+// target=7 Hz, dt=0.1 s → sim_rate=10 Hz → effective=min(7, 10)=7 Hz.
+TEST(SimulatorBackendEffectiveTfRateAccumulator, BelowSimRateReturnsTarget)
+{
+  AccumulatorStubBackend backend;
+  backend.step_dt = 0.1;
+  backend.tf_rate = 7.0;
+
+  EXPECT_DOUBLE_EQ(backend.get_effective_tf_rate(), 7.0);
+}
+
+// target=50 Hz, dt=0.1 s → sim_rate=10 Hz → effective=min(50, 10)=10 Hz.
+TEST(SimulatorBackendEffectiveTfRateAccumulator, AboveSimRateClampsToSimRate)
+{
+  AccumulatorStubBackend backend;
+  backend.step_dt = 0.1;
+  backend.tf_rate = 50.0;
+
+  EXPECT_DOUBLE_EQ(backend.get_effective_tf_rate(), 10.0);
+}
+
+// target=0 → guard fires before mode branch; returns 0.
+TEST(SimulatorBackendEffectiveTfRateAccumulator, ZeroWhenTargetIsZero)
+{
+  AccumulatorStubBackend backend;
+  backend.step_dt = 0.1;
+  backend.tf_rate = 0.0;
+
+  EXPECT_DOUBLE_EQ(backend.get_effective_tf_rate(), 0.0);
+}
+
+// target=7 Hz, dt=0.1 s → effective=7 Hz for odom too.
+TEST(SimulatorBackendEffectiveOdomRateAccumulator, BelowSimRateReturnsTarget)
+{
+  AccumulatorStubBackend backend;
+  backend.step_dt = 0.1;
+  backend.odom_rate = 7.0;
+
+  EXPECT_DOUBLE_EQ(backend.get_effective_odom_rate(), 7.0);
+}
+
+// target=50 Hz, dt=0.1 s → effective=10 Hz.
+TEST(SimulatorBackendEffectiveOdomRateAccumulator, AboveSimRateClampsToSimRate)
+{
+  AccumulatorStubBackend backend;
+  backend.step_dt = 0.1;
+  backend.odom_rate = 50.0;
+
+  EXPECT_DOUBLE_EQ(backend.get_effective_odom_rate(), 10.0);
+}
+
+// target=0 → guard fires before mode branch; returns 0.
+TEST(SimulatorBackendEffectiveOdomRateAccumulator, ZeroWhenTargetIsZero)
+{
+  AccumulatorStubBackend backend;
+  backend.step_dt = 0.1;
+  backend.odom_rate = 0.0;
+
+  EXPECT_DOUBLE_EQ(backend.get_effective_odom_rate(), 0.0);
+}
+
+// ---------------------------------------------------------------------------
+// Verify SnapToMultiple mode still returns the snapped value (not the target)
+// when target does not land on a tick boundary.
+// ---------------------------------------------------------------------------
+
+// step_dt=0.1, target=7 Hz → round(1/(7*0.1))=round(1.43)=1 → effective=10 Hz.
+// Confirms SnapToMultiple does NOT return 7.0 (unlike Accumulator).
+TEST(SimulatorBackendEffectiveTfRateSnapToMultiple, NonBoundaryTargetSnaps)
+{
+  StubBackendForRateTest backend;
+  backend.step_dt = 0.1;
+  backend.tf_rate = 7.0;
+
+  // Snapped period = round(1.43) = 1 tick → 10 Hz, NOT 7 Hz.
+  EXPECT_DOUBLE_EQ(backend.get_effective_tf_rate(), 10.0);
+}
+
 }  // namespace
 }  // namespace stdr_gui

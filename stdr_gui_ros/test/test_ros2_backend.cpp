@@ -1063,5 +1063,14 @@ TEST_F(Ros2BackendTest, PublishesRosTopicsReturnsTrue)
   EXPECT_TRUE(backend_.publishes_ros_topics());
 }
 
+// ─── get_scheduling_mode default ─────────────────────────────────────────────
+
+// Before any robot connects, the mode defaults to SnapToMultiple so the
+// effective-rate display matches the pre-existing behaviour.
+TEST_F(Ros2BackendTest, GetSchedulingModeDefaultsToSnapToMultiple)
+{
+  EXPECT_EQ(backend_.get_scheduling_mode(), stdr_simulation::SchedulingMode::SnapToMultiple);
+}
+
 }  // namespace
 }  // namespace stdr_gui_ros

@@ -5,6 +5,7 @@
 #include <stdr_gui/simulator_backend.hpp>
 #include <stdr_parser/msg_conversions.hpp>
 #include <stdr_simulation/plot_data/spsc_ring.hpp>
+#include <stdr_simulation/rate_scheduler.hpp>
 
 #include <tf2/utils.h>
 #include <tf2_geometry_msgs/tf2_geometry_msgs.hpp>
@@ -181,6 +182,11 @@ void Ros2Backend::set_odom_rate(double hz)
 double Ros2Backend::get_odom_rate() const
 {
   return odom_rate_.load(std::memory_order_relaxed);
+}
+
+stdr_simulation::SchedulingMode Ros2Backend::get_scheduling_mode() const
+{
+  return scheduling_mode_.load(std::memory_order_relaxed);
 }
 
 // ─── Parameter propagation ────────────────────────────────────────────────────
@@ -661,6 +667,14 @@ void Ros2Backend::on_active_robots(const stdr_msgs::msg::RobotIndexedVectorMsg::
       // this robot.  The ParameterEventHandler weak-references each handle,
       // so destruction here is sufficient.
       param_event_subs_.erase(name);
+      // Cancel any in-progress seed timer before erasing it.  If the timer
+      // callback is currently executing, cancel() is idempotent and safe; the
+      // map entry is then destroyed here on the same executor thread.
+      if (const auto it = seed_timers_.find(name); it != seed_timers_.end())
+      {
+        it->second->cancel();
+        seed_timers_.erase(it);
+      }
     }
 
     // Build the new robot_states_ vector and create odom subs for new robots.
@@ -762,40 +776,66 @@ void Ros2Backend::on_active_robots(const stdr_msgs::msg::RobotIndexedVectorMsg::
             },
             robot_name));
 
+        handles.push_back(param_event_handler_->add_parameter_callback(
+            "scheduling_mode",
+            [weak_alive_param, this, robot_name](const rclcpp::Parameter& p) {
+              const std::shared_ptr<std::atomic<bool>> live = weak_alive_param.lock();
+              if (!live || !live->load(std::memory_order_relaxed))
+              {
+                return;
+              }
+              const tl::expected<stdr_simulation::SchedulingMode, std::string> mode =
+                  stdr_simulation::scheduling_mode_from_string(p.as_string());
+              if (mode.has_value())
+              {
+                scheduling_mode_.store(mode.value(), std::memory_order_relaxed);
+              }
+              else
+              {
+                RCLCPP_WARN(node_->get_logger(), "Ignoring invalid scheduling_mode '%s' from robot '%s': %s",
+                            p.as_string().c_str(), robot_name.c_str(), mode.error().c_str());
+              }
+            },
+            robot_name));
+
         param_event_subs_[robot_name] = std::move(handles);
 
-        // One-shot seed: read the robot's current parameter values so the GUI
+        // Retry seed: read the robot's current parameter values so the GUI
         // reflects actuals rather than defaults on first render.
         //
         // service_is_ready() alone is racy: the param service may not be
-        // discoverable yet immediately after the robot node starts.  Instead,
-        // we install a 50 ms retry timer that checks once per tick and
-        // self-cancels after the first successful get_parameters call or after
-        // kMaxSeedAttempts retries.  This closes the race without busy-waiting
-        // while remaining cheap (50 ms ticks, at most 20 attempts = 1 s max).
-        constexpr int kMaxSeedAttempts = 20;
+        // discoverable yet immediately after the robot node starts.  We install
+        // a 50 ms retry timer that checks once per tick.  If the service is
+        // ready and no request is outstanding, we fire get_parameters().  The
+        // result callback cancels the timer on success, or clears the in-flight
+        // flag on failure so the next tick can retry.  The timer gives up only
+        // after kMaxSeedAttempts as a backstop against a robot that never
+        // responds (up to ~10 s of wall time; ticks while a request is in
+        // flight are no-ops and do not count as useful round trips).
+        constexpr int kMaxSeedAttempts = 200;
         // Shared attempt counter so the lambda owns its own lifetime without
         // needing to reach into a container.
         const std::shared_ptr<int> attempt_count = std::make_shared<int>(0);
+        // Guards against issuing a second get_parameters while one is already
+        // in flight.  Both the timer callback and the result callback run on the
+        // same executor thread, so a plain bool is safe — no data race.
+        const std::shared_ptr<bool> request_in_flight = std::make_shared<bool>(false);
         const std::weak_ptr<std::atomic<bool>> weak_alive_seed = alive_;
 
-        // Use a shared_ptr to hold the timer handle so the lambda can cancel
-        // it by resetting the pointer.  The outer shared_ptr is captured by
-        // value; the inner weak_ptr breaks the self-referential cycle.
-        const std::shared_ptr<rclcpp::TimerBase::SharedPtr> timer_holder =
-            std::make_shared<rclcpp::TimerBase::SharedPtr>();
-        std::weak_ptr<rclcpp::TimerBase::SharedPtr> weak_timer_holder = timer_holder;
-
-        *timer_holder =
+        // Store the timer in seed_timers_ so cancellation is always possible:
+        // the timer fires after on_active_robots() returns, at which point any
+        // local shared_ptr to the timer would be gone.  A member map keeps the
+        // strong reference alive and lets the callbacks cancel reliably.
+        seed_timers_[robot_name] =
             node_->create_wall_timer(std::chrono::milliseconds(50), [this, robot_name, new_client, attempt_count,
-                                                                     weak_alive_seed, weak_timer_holder]() {
+                                                                     request_in_flight, weak_alive_seed]() {
               // Cancel if the backend has been destroyed.
               const std::shared_ptr<std::atomic<bool>> live = weak_alive_seed.lock();
               if (!live || !live->load(std::memory_order_relaxed))
               {
-                if (const std::shared_ptr<rclcpp::TimerBase::SharedPtr> th = weak_timer_holder.lock())
+                if (const auto it = seed_timers_.find(robot_name); it != seed_timers_.end())
                 {
-                  (*th)->cancel();
+                  it->second->cancel();
                 }
                 return;
               }
@@ -803,10 +843,19 @@ void Ros2Backend::on_active_robots(const stdr_msgs::msg::RobotIndexedVectorMsg::
               ++(*attempt_count);
               if (*attempt_count > kMaxSeedAttempts)
               {
-                if (const std::shared_ptr<rclcpp::TimerBase::SharedPtr> th = weak_timer_holder.lock())
+                if (const auto it = seed_timers_.find(robot_name); it != seed_timers_.end())
                 {
-                  (*th)->cancel();
+                  it->second->cancel();
                 }
+                RCLCPP_WARN(node_->get_logger(),
+                            "Parameter seed for robot '%s' gave up after %d attempts — GUI may show stale defaults.",
+                            robot_name.c_str(), kMaxSeedAttempts);
+                return;
+              }
+
+              // A request is already outstanding; wait for its result before sending another.
+              if (*request_in_flight)
+              {
                 return;
               }
 
@@ -815,18 +864,18 @@ void Ros2Backend::on_active_robots(const stdr_msgs::msg::RobotIndexedVectorMsg::
                 return;  // Not ready yet — try again next tick.
               }
 
-              // Service is ready: fire the one-shot get_parameters and cancel.
-              if (const std::shared_ptr<rclcpp::TimerBase::SharedPtr> th = weak_timer_holder.lock())
-              {
-                (*th)->cancel();
-              }
+              // Service is ready and no request is in flight: issue get_parameters.
+              // The timer stays running; the result callback cancels it on success.
+              *request_in_flight = true;
 
               std::ignore = new_client->get_parameters(
-                  { "sim_step_dt", "tf_rate", "odom_rate" },
-                  [this, weak_alive_seed, robot_name](std::shared_future<std::vector<rclcpp::Parameter>> future) {
+                  { "sim_step_dt", "tf_rate", "odom_rate", "scheduling_mode" },
+                  [this, weak_alive_seed, request_in_flight,
+                   robot_name](std::shared_future<std::vector<rclcpp::Parameter>> future) {
                     const std::shared_ptr<std::atomic<bool>> alive = weak_alive_seed.lock();
                     if (!alive || !alive->load())
                     {
+                      *request_in_flight = false;
                       return;
                     }
                     try
@@ -845,12 +894,35 @@ void Ros2Backend::on_active_robots(const stdr_msgs::msg::RobotIndexedVectorMsg::
                         {
                           odom_rate_.store(p.as_double(), std::memory_order_relaxed);
                         }
+                        else if (p.get_name() == "scheduling_mode")
+                        {
+                          const tl::expected<stdr_simulation::SchedulingMode, std::string> mode =
+                              stdr_simulation::scheduling_mode_from_string(p.as_string());
+                          if (mode.has_value())
+                          {
+                            scheduling_mode_.store(mode.value(), std::memory_order_relaxed);
+                          }
+                          else
+                          {
+                            RCLCPP_WARN(node_->get_logger(),
+                                        "Ignoring invalid scheduling_mode '%s' from robot '%s': %s",
+                                        p.as_string().c_str(), robot_name.c_str(), mode.error().c_str());
+                          }
+                        }
+                      }
+                      // All parameters stored successfully — stop retrying.
+                      *request_in_flight = false;
+                      if (const auto it = seed_timers_.find(robot_name); it != seed_timers_.end())
+                      {
+                        it->second->cancel();
                       }
                     }
                     catch (const std::exception& ex)
                     {
                       RCLCPP_DEBUG(node_->get_logger(), "Parameter seed for '%s' failed: %s", robot_name.c_str(),
                                    ex.what());
+                      // Clear the flag so the next timer tick can issue a fresh request.
+                      *request_in_flight = false;
                     }
                   });
             });
