@@ -24,10 +24,11 @@ namespace stdr_gui
 namespace
 {
 
-constexpr float kRobotRadius = 0.2f;          // Default footprint radius in world metres.
-constexpr float kSelectionThreshold = 15.0f;  // Click distance in pixels to select a robot.
-constexpr float kCenterDotRadius = 4.0f;      // Center dot radius in pixels.
-constexpr float kMinScreenRadius = 8.0f;      // Minimum robot display radius in pixels.
+constexpr float kRobotRadius = 0.2f;                // Default footprint radius in world metres.
+constexpr float kSelectionThreshold = 15.0f;        // Click distance in pixels to select a robot.
+constexpr float kCenterDotRadius = 4.0f;            // Center dot radius in pixels.
+constexpr float kCenterOfRotationDotRadius = 4.0f;  // Center-of-rotation dot radius in pixels.
+constexpr float kMinScreenRadius = 8.0f;            // Minimum robot display radius in pixels.
 
 [[nodiscard]] bool is_nonzero(const stdr_simulation::Twist2D& twist)
 {
@@ -248,6 +249,11 @@ void MapPanel::render_robots(const SimulationSnapshot& snapshot)
 
     const bool has_polygon = !robot.config.footprint.points.empty();
 
+    // Precompute once per robot so the polygon and center-of-rotation blocks
+    // share the same trig values rather than each recomputing them.
+    const double cos_theta = std::cos(robot.pose.theta);
+    const double sin_theta = std::sin(robot.pose.theta);
+
     // For polygon robots the centroid is a better visual anchor than the robot origin,
     // which may sit at the edge of the shape (e.g. trin_bot).
     ImVec2 draw_center = center;
@@ -258,9 +264,6 @@ void MapPanel::render_robots(const SimulationSnapshot& snapshot)
       // by the robot heading and translating to world position.
       std::vector<ImVec2> poly_screen;
       poly_screen.reserve(robot.config.footprint.points.size());
-
-      const double cos_theta = std::cos(robot.pose.theta);
-      const double sin_theta = std::sin(robot.pose.theta);
 
       for (const stdr_simulation::Point2D& pt : robot.config.footprint.points)
       {
@@ -325,6 +328,19 @@ void MapPanel::render_robots(const SimulationSnapshot& snapshot)
     // Robot name label.
     draw_list->AddText(ImVec2(draw_center.x + screen_radius + 3.0f, draw_center.y - 8.0f), IM_COL32(255, 255, 255, 255),
                        robot.name.c_str());
+
+    // Draw the configured center of rotation as a black dot.  The pivot is stored
+    // in the robot body frame, so it must be rotated by the robot heading and
+    // translated to world position before converting to screen space — the same
+    // transform applied to polygon footprint vertices.
+    {
+      const stdr_simulation::Point2D& cor = robot.config.center_of_rotation;
+      const double cor_wx = robot.pose.x + cor.x * cos_theta - cor.y * sin_theta;
+      const double cor_wy = robot.pose.y + cor.x * sin_theta + cor.y * cos_theta;
+      const ScreenPoint cor_sp = transform_.world_to_screen(cor_wx, cor_wy);
+      const ImVec2 cor_screen{ content_origin_.x + cor_sp.x, content_origin_.y + cor_sp.y };
+      draw_list->AddCircleFilled(cor_screen, kCenterOfRotationDotRadius, IM_COL32(0, 0, 0, 255));
+    }
 
     // Left-click selection: pick the robot closest to the click within threshold.
     if (ImGui::IsMouseClicked(ImGuiMouseButton_Left))

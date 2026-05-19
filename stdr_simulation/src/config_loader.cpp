@@ -1,5 +1,7 @@
 #include <stdr_simulation/config_loader.hpp>
 
+#include <stdr_simulation/geometry_utils.hpp>
+
 #include <yaml-cpp/yaml.h>
 
 #include <tl_expected/expected.hpp>
@@ -413,6 +415,16 @@ tl::expected<RobotConfig, std::string> load_robot_config(const std::string& yaml
       {
         config.initial_pose = parse_pose(item["initial_pose"]);
       }
+      else if (item["center_of_rotation"])
+      {
+        const YAML::Node cor = item["center_of_rotation"];
+        Point2D p;
+        if (cor["x"])
+          p.x = cor["x"].as<double>();
+        if (cor["y"])
+          p.y = cor["y"].as<double>();
+        config.center_of_rotation = p;
+      }
       else if (item["laser"])
       {
         tl::expected<LaserConfig, std::string> laser = parse_laser(item["laser"], base_dir);
@@ -462,6 +474,16 @@ tl::expected<RobotConfig, std::string> load_robot_config(const std::string& yaml
           return tl::unexpected(sound.error());
         config.sound_sensors.push_back(std::move(*sound));
       }
+    }
+
+    // Validate that center_of_rotation lies within the footprint so the robot
+    // pivot is always inside the robot body — a pivot outside produces
+    // physically incorrect motion and breaks collision geometry.
+    if (!point_in_footprint(config.center_of_rotation, config.footprint))
+    {
+      return tl::unexpected("center_of_rotation {x: " + std::to_string(config.center_of_rotation.x) +
+                            ", y: " + std::to_string(config.center_of_rotation.y) +
+                            "} is outside the robot footprint in " + yaml_path);
     }
 
     // Assign stable positional default frame_ids to any sensor that did not

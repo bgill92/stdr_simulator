@@ -290,6 +290,10 @@ public:
    *  Returns an empty vector if the robot is not found or has no footprint. */
   [[nodiscard]] virtual std::vector<stdr_simulation::Point2D> footprint(const RobotId& robot_id) const = 0;
 
+  /** Return the center-of-rotation of @p robot_id in robot body frame.
+   *  Returns a zero point if @p robot_id is not found. */
+  [[nodiscard]] virtual stdr_simulation::Point2D center_of_rotation(const RobotId& robot_id) const = 0;
+
   /** Return the elapsed simulation time in seconds. */
   [[nodiscard]] virtual double sim_time() const = 0;
 

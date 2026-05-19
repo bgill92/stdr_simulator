@@ -69,6 +69,10 @@ public:
   {
     return {};
   }
+  [[nodiscard]] stdr_simulation::Point2D center_of_rotation(const RobotId& /*robot_id*/) const override
+  {
+    return {};
+  }
   [[nodiscard]] double sim_time() const override
   {
     return 0.0;

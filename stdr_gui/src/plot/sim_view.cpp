@@ -98,6 +98,12 @@ public:
     return backend_.footprint(robot_id);
   }
 
+  [[nodiscard]] stdr_simulation::Point2D center_of_rotation(const RobotId& robot_id) const override
+  {
+    const std::optional<stdr_simulation::Point2D> cor = backend_.center_of_rotation(robot_id);
+    return cor.value_or(stdr_simulation::Point2D{});
+  }
+
   [[nodiscard]] double sim_time() const override
   {
     return backend_.sim_time();

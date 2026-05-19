@@ -367,6 +367,31 @@ TEST(MsgConversions, RobotConfigRoundTrip)
   EXPECT_NEAR(roundtripped.kinematic_model.a_ux_ux, 1.0, 1e-5);
 }
 
+// --- RobotConfig with center_of_rotation ---
+
+// Verify that a non-origin center_of_rotation survives a full
+// RobotConfig -> RobotMsg -> RobotConfig round-trip without being silently
+// dropped.  An origin value would pass even if the field were unmapped, so
+// we use a non-zero point to make the test meaningful.
+TEST(MsgConversions, RobotConfigCenterOfRotationRoundTrip)
+{
+  stdr_simulation::RobotConfig cfg;
+  cfg.initial_pose = { 0.0, 0.0, 0.0 };
+  cfg.footprint.radius = 0.2;
+  cfg.center_of_rotation = { 0.15, -0.05 };
+
+  const stdr_msgs::msg::RobotMsg msg = to_ros_msg(cfg);
+
+  EXPECT_DOUBLE_EQ(msg.center_of_rotation.x, 0.15);
+  EXPECT_DOUBLE_EQ(msg.center_of_rotation.y, -0.05);
+  EXPECT_DOUBLE_EQ(msg.center_of_rotation.z, 0.0);
+
+  const stdr_simulation::RobotConfig roundtripped = from_ros_msg(msg);
+
+  EXPECT_DOUBLE_EQ(roundtripped.center_of_rotation.x, 0.15);
+  EXPECT_DOUBLE_EQ(roundtripped.center_of_rotation.y, -0.05);
+}
+
 // --- RfidTag ---
 
 TEST(MsgConversions, RfidTagRoundTrip)

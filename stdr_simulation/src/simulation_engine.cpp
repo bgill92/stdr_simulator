@@ -202,11 +202,13 @@ void SimulationEngine::step(double dt)
     Pose2D new_pose;
     if (robot.config.kinematic_model.type == "omni")
     {
-      new_pose = omni_motion_.update(robot.pose, robot.cmd_vel, dt, robot.config.kinematic_model);
+      new_pose = omni_motion_.update(robot.pose, robot.cmd_vel, dt, robot.config.kinematic_model,
+                                     robot.config.center_of_rotation);
     }
     else
     {
-      new_pose = ideal_motion_.update(robot.pose, robot.cmd_vel, dt, robot.config.kinematic_model);
+      new_pose = ideal_motion_.update(robot.pose, robot.cmd_vel, dt, robot.config.kinematic_model,
+                                      robot.config.center_of_rotation);
     }
 
     // --- Collision check and pose commit ---

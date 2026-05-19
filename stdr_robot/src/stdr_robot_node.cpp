@@ -727,11 +727,11 @@ void StdrRobotNode::integrate_motion(double dt)
   stdr_simulation::Pose2D new_pose;
   if (config_.kinematic_model.type == "omni")
   {
-    new_pose = omni_motion_.update(pose_, cmd_vel_, dt, config_.kinematic_model);
+    new_pose = omni_motion_.update(pose_, cmd_vel_, dt, config_.kinematic_model, config_.center_of_rotation);
   }
   else
   {
-    new_pose = ideal_motion_.update(pose_, cmd_vel_, dt, config_.kinematic_model);
+    new_pose = ideal_motion_.update(pose_, cmd_vel_, dt, config_.kinematic_model, config_.center_of_rotation);
   }
 
   // Collision check against map.

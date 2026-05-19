@@ -476,6 +476,18 @@ std::vector<stdr_simulation::Point2D> Ros2Backend::footprint(const std::string& 
   return it->config.footprint.points;
 }
 
+std::optional<stdr_simulation::Point2D> Ros2Backend::center_of_rotation(const std::string& robot_id) const
+{
+  const std::lock_guard<std::mutex> lock(snapshot_mutex_);
+  const auto it = std::find_if(robot_states_.begin(), robot_states_.end(),
+                               [&robot_id](const stdr_simulation::world::RobotState& s) { return s.name == robot_id; });
+  if (it == robot_states_.end())
+  {
+    return std::nullopt;
+  }
+  return it->config.center_of_rotation;
+}
+
 double Ros2Backend::sim_time() const
 {
   // Wall-clock since construction; no discrete simulation steps exist in ROS2 mode.

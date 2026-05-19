@@ -79,6 +79,7 @@ public:
   [[nodiscard]] std::optional<stdr_simulation::Twist2D> twist(const std::string& robot_id) const override;
   [[nodiscard]] std::optional<bool> collided(const std::string& robot_id) const override;
   [[nodiscard]] std::vector<stdr_simulation::Point2D> footprint(const std::string& robot_id) const override;
+  [[nodiscard]] std::optional<stdr_simulation::Point2D> center_of_rotation(const std::string& robot_id) const override;
   [[nodiscard]] std::optional<stdr_simulation::LaserScan> latest_laser(const std::string& robot_id,
                                                                        const std::string& sensor_id) const override;
   [[nodiscard]] stdr_gui::DrainedLaserResult poll_laser_events(std::uint64_t& cursor, const std::string& robot_id,

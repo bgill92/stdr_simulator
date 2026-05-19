@@ -74,6 +74,9 @@ if(BUILD_TESTING)
     PRIVATE FIXTURE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/test/fixtures")
   target_link_libraries(test_config_loader ${PROJECT_NAME} GTest::gmock)
 
+  ament_add_gtest(test_geometry_utils test/test_geometry_utils.cpp)
+  target_link_libraries(test_geometry_utils ${PROJECT_NAME} GTest::gmock)
+
   ament_add_gtest(test_collision_checker test/test_collision_checker.cpp)
   target_link_libraries(test_collision_checker ${PROJECT_NAME} GTest::gmock)
 

@@ -292,6 +292,7 @@ stdr_msgs::msg::RobotMsg to_ros_msg(const stdr_simulation::RobotConfig& cfg)
   stdr_msgs::msg::RobotMsg msg;
   msg.initial_pose = to_ros_msg(cfg.initial_pose);
   msg.footprint = to_ros_msg(cfg.footprint);
+  msg.center_of_rotation = to_ros_point(cfg.center_of_rotation);
   msg.laser_sensors.reserve(cfg.laser_sensors.size());
   for (const stdr_simulation::LaserConfig& s : cfg.laser_sensors)
   {
@@ -331,6 +332,7 @@ stdr_simulation::RobotConfig from_ros_msg(const stdr_msgs::msg::RobotMsg& msg)
   stdr_simulation::RobotConfig cfg;
   cfg.initial_pose = from_ros_msg(msg.initial_pose);
   cfg.footprint = from_ros_msg(msg.footprint);
+  cfg.center_of_rotation = from_ros_point(msg.center_of_rotation);
   cfg.laser_sensors.reserve(msg.laser_sensors.size());
   for (const stdr_msgs::msg::LaserSensorMsg& s : msg.laser_sensors)
   {
