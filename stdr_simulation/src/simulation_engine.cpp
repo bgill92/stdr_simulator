@@ -38,12 +38,22 @@ double SimulationEngine::step_dt() const noexcept
   return step_dt_;
 }
 
+void SimulationEngine::set_scheduling_mode(SchedulingMode mode)
+{
+  scheduling_mode_ = mode;
+}
+
+SchedulingMode SimulationEngine::scheduling_mode() const noexcept
+{
+  return scheduling_mode_;
+}
+
 void SimulationEngine::set_tf_rate(double freq_hz)
 {
   tf_rate_ = freq_hz;
   for (auto& [name, scheduler] : schedulers_)
   {
-    scheduler.set_rate(StreamKind::Tf, 0, freq_hz);
+    scheduler.set_rate(StreamKind::Tf, 0, freq_hz, scheduling_mode_);
   }
 }
 
@@ -57,7 +67,7 @@ void SimulationEngine::set_odom_rate(double freq_hz)
   odom_rate_ = freq_hz;
   for (auto& [name, scheduler] : schedulers_)
   {
-    scheduler.set_rate(StreamKind::Odom, 0, freq_hz);
+    scheduler.set_rate(StreamKind::Odom, 0, freq_hz, scheduling_mode_);
   }
 }
 
@@ -102,32 +112,32 @@ void SimulationEngine::register_sensor_streams(const std::string& robot_name, co
 {
   RateScheduler& scheduler = schedulers_.at(robot_name);
 
-  scheduler.set_rate(StreamKind::Tf, 0, tf_rate_);
-  scheduler.set_rate(StreamKind::Odom, 0, odom_rate_);
+  scheduler.set_rate(StreamKind::Tf, 0, tf_rate_, scheduling_mode_);
+  scheduler.set_rate(StreamKind::Odom, 0, odom_rate_, scheduling_mode_);
 
   for (std::size_t i = 0; i < config.laser_sensors.size(); ++i)
   {
-    scheduler.set_rate(StreamKind::Laser, i, config.laser_sensors[i].frequency);
+    scheduler.set_rate(StreamKind::Laser, i, config.laser_sensors[i].frequency, scheduling_mode_);
   }
   for (std::size_t i = 0; i < config.sonar_sensors.size(); ++i)
   {
-    scheduler.set_rate(StreamKind::Sonar, i, config.sonar_sensors[i].frequency);
+    scheduler.set_rate(StreamKind::Sonar, i, config.sonar_sensors[i].frequency, scheduling_mode_);
   }
   for (std::size_t i = 0; i < config.rfid_sensors.size(); ++i)
   {
-    scheduler.set_rate(StreamKind::Rfid, i, config.rfid_sensors[i].frequency);
+    scheduler.set_rate(StreamKind::Rfid, i, config.rfid_sensors[i].frequency, scheduling_mode_);
   }
   for (std::size_t i = 0; i < config.co2_sensors.size(); ++i)
   {
-    scheduler.set_rate(StreamKind::CO2, i, config.co2_sensors[i].frequency);
+    scheduler.set_rate(StreamKind::CO2, i, config.co2_sensors[i].frequency, scheduling_mode_);
   }
   for (std::size_t i = 0; i < config.thermal_sensors.size(); ++i)
   {
-    scheduler.set_rate(StreamKind::Thermal, i, config.thermal_sensors[i].frequency);
+    scheduler.set_rate(StreamKind::Thermal, i, config.thermal_sensors[i].frequency, scheduling_mode_);
   }
   for (std::size_t i = 0; i < config.sound_sensors.size(); ++i)
   {
-    scheduler.set_rate(StreamKind::Sound, i, config.sound_sensors[i].frequency);
+    scheduler.set_rate(StreamKind::Sound, i, config.sound_sensors[i].frequency, scheduling_mode_);
   }
 }
 

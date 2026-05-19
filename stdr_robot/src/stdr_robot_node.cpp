@@ -1,6 +1,7 @@
 #include "stdr_robot/stdr_robot_node.hpp"
 
 #include <stdr_parser/msg_conversions.hpp>
+#include <stdr_simulation/rate_scheduler.hpp>
 
 #include <tf2/LinearMath/Quaternion.h>
 #include <geometry_msgs/msg/transform_stamped.hpp>
@@ -12,6 +13,7 @@
 #include <cmath>
 #include <stdexcept>
 #include <string>
+#include <string_view>
 
 namespace stdr_robot
 {
@@ -103,6 +105,17 @@ make_float_descriptor(const std::string& description, double from_value, double 
 }
 
 /**
+ * @brief Build a ParameterDescriptor for a string parameter.
+ */
+[[nodiscard]] rcl_interfaces::msg::ParameterDescriptor make_string_descriptor(std::string_view description)
+{
+  rcl_interfaces::msg::ParameterDescriptor desc;
+  desc.description = std::string{ description };
+  desc.type = rcl_interfaces::msg::ParameterType::PARAMETER_STRING;
+  return desc;
+}
+
+/**
  * @brief Simulate sensors and publish results.
  *
  * All sensor config types share the same simulate → convert → publish
@@ -184,9 +197,24 @@ StdrRobotNode::StdrRobotNode(const rclcpp::NodeOptions& options)
                             make_float_descriptor("Odometry publish rate in Hz. 0 means every sim tick.",
                                                   stdr_simulation::kMinRateHz, stdr_simulation::kMaxRateHz));
 
+  declare_parameter<std::string>(
+      "scheduling_mode", "snap_to_multiple",
+      make_string_descriptor("Rate scheduling strategy: 'snap_to_multiple' or 'accumulator'."));
+
   sim_step_dt_ = get_parameter("sim_step_dt").as_double();
   tf_rate_ = get_parameter("tf_rate").as_double();
   odom_rate_ = get_parameter("odom_rate").as_double();
+
+  {
+    const std::string mode_str = get_parameter("scheduling_mode").as_string();
+    const tl::expected<stdr_simulation::SchedulingMode, std::string> mode_result =
+        stdr_simulation::scheduling_mode_from_string(mode_str);
+    if (!mode_result.has_value())
+    {
+      throw std::invalid_argument(mode_result.error());
+    }
+    scheduling_mode_ = mode_result.value();
+  }
 
   // Re-initialize the scheduler with the validated step dt.
   scheduler_ = stdr_simulation::RateScheduler(sim_step_dt_);
@@ -202,7 +230,9 @@ StdrRobotNode::StdrRobotNode(const rclcpp::NodeOptions& options)
     double new_sim_step_dt = sim_step_dt_;
     double new_tf_rate = tf_rate_;
     double new_odom_rate = odom_rate_;
+    stdr_simulation::SchedulingMode new_scheduling_mode = scheduling_mode_;
     bool sim_step_dt_changed = false;
+    bool scheduling_mode_changed = false;
 
     for (const rclcpp::Parameter& param : parameters)
     {
@@ -240,6 +270,19 @@ StdrRobotNode::StdrRobotNode(const rclcpp::NodeOptions& options)
         }
         new_odom_rate = v;
       }
+      else if (param.get_name() == "scheduling_mode")
+      {
+        const tl::expected<stdr_simulation::SchedulingMode, std::string> mode_result =
+            stdr_simulation::scheduling_mode_from_string(param.as_string());
+        if (!mode_result.has_value())
+        {
+          result.successful = false;
+          result.reason = mode_result.error();
+          return result;
+        }
+        new_scheduling_mode = mode_result.value();
+        scheduling_mode_changed = true;
+      }
     }
 
     // All parameters validated — apply updates.
@@ -249,11 +292,25 @@ StdrRobotNode::StdrRobotNode(const rclcpp::NodeOptions& options)
 
     if (sim_step_dt_changed)
     {
+      // Always update the scheduler's step_dt first — register_scheduler_streams()
+      // (called below) re-registers all streams using the scheduler's stored step_dt_,
+      // so this must be set before the clear+re-register, not after.
       scheduler_.set_step_dt(sim_step_dt_);
     }
 
-    scheduler_.set_rate(stdr_simulation::StreamKind::Tf, 0, tf_rate_);
-    scheduler_.set_rate(stdr_simulation::StreamKind::Odom, 0, odom_rate_);
+    if (scheduling_mode_changed)
+    {
+      scheduling_mode_ = new_scheduling_mode;
+      // register_scheduler_streams() reads scheduling_mode_, tf_rate_, odom_rate_, and
+      // all sensor rates from members that were already updated above — do not add a
+      // duplicate set_rate(Tf/Odom, …) call inside this branch.
+      register_scheduler_streams();
+    }
+    else
+    {
+      scheduler_.set_rate(stdr_simulation::StreamKind::Tf, 0, tf_rate_, scheduling_mode_);
+      scheduler_.set_rate(stdr_simulation::StreamKind::Odom, 0, odom_rate_, scheduling_mode_);
+    }
 
     if (sim_step_dt_changed)
     {
@@ -412,32 +469,32 @@ void StdrRobotNode::register_scheduler_streams()
 {
   scheduler_.clear();
 
-  scheduler_.set_rate(stdr_simulation::StreamKind::Tf, 0, tf_rate_);
-  scheduler_.set_rate(stdr_simulation::StreamKind::Odom, 0, odom_rate_);
+  scheduler_.set_rate(stdr_simulation::StreamKind::Tf, 0, tf_rate_, scheduling_mode_);
+  scheduler_.set_rate(stdr_simulation::StreamKind::Odom, 0, odom_rate_, scheduling_mode_);
 
   for (std::size_t i = 0; i < config_.laser_sensors.size(); ++i)
   {
-    scheduler_.set_rate(stdr_simulation::StreamKind::Laser, i, config_.laser_sensors[i].frequency);
+    scheduler_.set_rate(stdr_simulation::StreamKind::Laser, i, config_.laser_sensors[i].frequency, scheduling_mode_);
   }
   for (std::size_t i = 0; i < config_.sonar_sensors.size(); ++i)
   {
-    scheduler_.set_rate(stdr_simulation::StreamKind::Sonar, i, config_.sonar_sensors[i].frequency);
+    scheduler_.set_rate(stdr_simulation::StreamKind::Sonar, i, config_.sonar_sensors[i].frequency, scheduling_mode_);
   }
   for (std::size_t i = 0; i < config_.rfid_sensors.size(); ++i)
   {
-    scheduler_.set_rate(stdr_simulation::StreamKind::Rfid, i, config_.rfid_sensors[i].frequency);
+    scheduler_.set_rate(stdr_simulation::StreamKind::Rfid, i, config_.rfid_sensors[i].frequency, scheduling_mode_);
   }
   for (std::size_t i = 0; i < config_.co2_sensors.size(); ++i)
   {
-    scheduler_.set_rate(stdr_simulation::StreamKind::CO2, i, config_.co2_sensors[i].frequency);
+    scheduler_.set_rate(stdr_simulation::StreamKind::CO2, i, config_.co2_sensors[i].frequency, scheduling_mode_);
   }
   for (std::size_t i = 0; i < config_.thermal_sensors.size(); ++i)
   {
-    scheduler_.set_rate(stdr_simulation::StreamKind::Thermal, i, config_.thermal_sensors[i].frequency);
+    scheduler_.set_rate(stdr_simulation::StreamKind::Thermal, i, config_.thermal_sensors[i].frequency, scheduling_mode_);
   }
   for (std::size_t i = 0; i < config_.sound_sensors.size(); ++i)
   {
-    scheduler_.set_rate(stdr_simulation::StreamKind::Sound, i, config_.sound_sensors[i].frequency);
+    scheduler_.set_rate(stdr_simulation::StreamKind::Sound, i, config_.sound_sensors[i].frequency, scheduling_mode_);
   }
 }
 

@@ -88,15 +88,6 @@ repos:
           # we need <br /> tags in markdown within tables
           - "--disable=MD033"
 
-  - repo: local
-    hooks:
-      - id: pragma-once
-        name: pragma-once
-        entry: ./bin/scripts/check-pragma-once.sh
-        language: system
-        pass_filenames: false
-
-
   - repo: https://github.com/commitizen-tools/commitizen
     rev: v4.9.1
     hooks:

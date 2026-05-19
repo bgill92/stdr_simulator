@@ -48,6 +48,13 @@ namespace stdr_robot
 class StdrRobotNode : public rclcpp::Node
 {
 public:
+  /**
+   * @brief Construct and configure the robot node from ROS parameters.
+   *
+   * @throws std::invalid_argument if `robot_name` is set to a non-empty but
+   *   invalid ROS2 node name, or if `scheduling_mode` is set to a value other
+   *   than "snap_to_multiple" or "accumulator".
+   */
   explicit StdrRobotNode(const rclcpp::NodeOptions& options = rclcpp::NodeOptions());
 
   /**
@@ -114,6 +121,7 @@ private:
   double sim_step_dt_{ stdr_simulation::kDefaultStepDt };
   double tf_rate_{ stdr_simulation::kDefaultTfRateHz };
   double odom_rate_{ stdr_simulation::kDefaultOdomRateHz };
+  stdr_simulation::SchedulingMode scheduling_mode_{ stdr_simulation::SchedulingMode::SnapToMultiple };
 
   // --- Rate scheduler ---
   // Initialized with sim_step_dt_ after the param is read in the constructor.

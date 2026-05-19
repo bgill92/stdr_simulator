@@ -5,6 +5,8 @@
 
 #include <cstddef>
 #include <stdexcept>
+#include <string>
+#include <tuple>
 #include <vector>
 
 namespace stdr_simulation
@@ -279,6 +281,290 @@ TEST(RateSchedulerTest, TickReturnsStreamsInStableOrder)
   EXPECT_EQ(events[3].index, 0U);
   EXPECT_EQ(events[4].kind, StreamKind::Sonar);
   EXPECT_EQ(events[4].index, 1U);
+}
+
+// ---------------------------------------------------------------------------
+// Accumulator mode tests.  Ordered simplest → complex per project convention.
+// ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// Mode query API
+// ---------------------------------------------------------------------------
+
+TEST(AccumulatorModeTest, DefaultModeIsSnapToMultiple)
+{
+  // set_rate with the 3-arg overload must default to SnapToMultiple.
+  RateScheduler sched(0.1);
+  sched.set_rate(StreamKind::Laser, 0, 10.0);
+  EXPECT_EQ(sched.mode(StreamKind::Laser, 0), SchedulingMode::SnapToMultiple);
+}
+
+TEST(AccumulatorModeTest, UnregisteredStreamReturnsSnapMode)
+{
+  // Consistent with period_ticks() returning 0 for unregistered streams.
+  const RateScheduler sched(0.1);
+  EXPECT_EQ(sched.mode(StreamKind::Sonar, 42), SchedulingMode::SnapToMultiple);
+}
+
+// ---------------------------------------------------------------------------
+// Accumulator edge cases: zero / negative freq behave like snap "every tick"
+// ---------------------------------------------------------------------------
+
+TEST(AccumulatorModeTest, AccumulatorZeroFreqFiresEveryTick)
+{
+  // freq=0.0 → fire every tick regardless of mode.
+  RateScheduler sched(0.1);
+  sched.set_rate(StreamKind::Odom, 0, 0.0, SchedulingMode::Accumulator);
+
+  for (int i = 0; i < 5; ++i)
+  {
+    const FiredSet fired{ sched.tick() };
+    EXPECT_TRUE(fired.contains(StreamKind::Odom, 0)) << "Expected Odom to fire on tick " << (i + 1);
+  }
+}
+
+TEST(AccumulatorModeTest, AccumulatorNegativeFreqFiresEveryTick)
+{
+  // Non-positive freq → fire every tick, same as SnapToMultiple convention.
+  RateScheduler sched(0.1);
+  sched.set_rate(StreamKind::Odom, 0, -5.0, SchedulingMode::Accumulator);
+
+  for (int i = 0; i < 5; ++i)
+  {
+    const FiredSet fired{ sched.tick() };
+    EXPECT_TRUE(fired.contains(StreamKind::Odom, 0)) << "Expected Odom to fire on tick " << (i + 1);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Accumulator clean-ratio cases: should behave the same as snap
+// ---------------------------------------------------------------------------
+
+TEST(AccumulatorModeTest, AccumulatorExactMatchFiresEveryTick)
+{
+  // freq=10 Hz, dt=0.1 s → period_seconds=0.1 == step_dt.
+  // Each tick: accum += 0.1, fires at 0.1 >= 0.1, accum resets to 0.0.
+  // So it fires every tick, matching snap behaviour.
+  RateScheduler sched(0.1);
+  sched.set_rate(StreamKind::Tf, 0, 10.0, SchedulingMode::Accumulator);
+
+  for (int i = 0; i < 5; ++i)
+  {
+    const FiredSet fired{ sched.tick() };
+    EXPECT_TRUE(fired.contains(StreamKind::Tf, 0)) << "Expected Tf to fire on tick " << (i + 1);
+  }
+}
+
+TEST(AccumulatorModeTest, AccumulatorHalfSimRateFiresAlternate)
+{
+  // freq=5 Hz, dt=0.1 s → period_seconds=0.2.
+  // Tick 1: accum=0.1, no fire.  Tick 2: accum=0.2 >= 0.2, fire, accum=0.0.
+  // Fires on ticks 2, 4, 6 — same as snap for this clean ratio.
+  RateScheduler sched(0.1);
+  sched.set_rate(StreamKind::Odom, 0, 5.0, SchedulingMode::Accumulator);
+
+  for (int tick = 1; tick <= 6; ++tick)
+  {
+    const FiredSet fired{ sched.tick() };
+    const bool expected = (tick % 2 == 0);
+    EXPECT_EQ(fired.contains(StreamKind::Odom, 0), expected) << "Tick " << tick << ": expected fire=" << expected;
+  }
+}
+
+TEST(AccumulatorModeTest, AccumulatorClampedAtSimRate)
+{
+  // freq=100 Hz, dt=0.1 s → period_seconds=0.01 < step_dt.
+  // Each tick: accum += 0.1, which exceeds 0.01 immediately → fire every tick.
+  // At most one fire per tick (no looping), capping effective rate at sim rate.
+  RateScheduler sched(0.1);
+  sched.set_rate(StreamKind::Laser, 0, 100.0, SchedulingMode::Accumulator);
+
+  for (int i = 0; i < 5; ++i)
+  {
+    const FiredSet fired{ sched.tick() };
+    EXPECT_TRUE(fired.contains(StreamKind::Laser, 0)) << "Expected Laser to fire on tick " << (i + 1);
+  }
+}
+
+TEST(AccumulatorModeTest, AccumulatorResidualBoundedAtHighFreq)
+{
+  // freq=100 Hz, dt=0.1 s: period_seconds=0.01 < step_dt.  Without fmod,
+  // the residual would grow by (0.1 - 0.01) = 0.09 s per tick.  After
+  // 1000 ticks that would be 90 s.  With fmod, residual stays in [0, 0.01).
+  // We verify by checking the fire count is exactly 1000 (one per tick)
+  // over 1000 ticks — if the residual had drifted, we'd lose ticks.
+  RateScheduler sched(0.1);
+  sched.set_rate(StreamKind::Laser, 0, 100.0, SchedulingMode::Accumulator);
+
+  std::size_t fire_count = 0;
+  for (int i = 0; i < 1000; ++i)
+  {
+    const FiredSet fired{ sched.tick() };
+    if (fired.contains(StreamKind::Laser, 0))
+    {
+      ++fire_count;
+    }
+  }
+  EXPECT_EQ(fire_count, 1000U);
+}
+
+// ---------------------------------------------------------------------------
+// Accumulator effective_rate() — must report the true target, not snapped value
+// ---------------------------------------------------------------------------
+
+TEST(AccumulatorModeTest, AccumulatorEffectiveRateMatchesTargetForCleanRatio)
+{
+  // 5 Hz, dt=0.1 s → target is cleanly representable below sim rate (10 Hz).
+  // effective_rate() must return 5.0, not the snapped 1/(period_ticks*dt).
+  RateScheduler sched(0.1);
+  sched.set_rate(StreamKind::Laser, 0, 5.0, SchedulingMode::Accumulator);
+
+  EXPECT_DOUBLE_EQ(sched.effective_rate(StreamKind::Laser, 0), 5.0);
+}
+
+TEST(AccumulatorModeTest, AccumulatorEffectiveRateClampedAtSimRate)
+{
+  // 100 Hz, dt=0.1 s → target exceeds sim rate (10 Hz); clamped to 10.0.
+  RateScheduler sched(0.1);
+  sched.set_rate(StreamKind::Laser, 0, 100.0, SchedulingMode::Accumulator);
+
+  EXPECT_DOUBLE_EQ(sched.effective_rate(StreamKind::Laser, 0), 10.0);
+}
+
+// ---------------------------------------------------------------------------
+// Accumulator headline tests: average rate matches target over time
+// ---------------------------------------------------------------------------
+
+TEST(AccumulatorModeTest, AccumulatorMatchesTargetRateOverTime)
+{
+  // 7 Hz, dt=0.1 s, 100 ticks = 10 s of sim time.
+  // Expected fires = 7 * 10 = 70.  Accumulator hits this exactly because
+  // 10 s / (1/7 s period) = nominally exactly 70.
+  RateScheduler sched(0.1);
+  sched.set_rate(StreamKind::Laser, 0, 7.0, SchedulingMode::Accumulator);
+
+  std::size_t count = 0;
+  for (int i = 0; i < 100; ++i)
+  {
+    const FiredSet fired{ sched.tick() };
+    if (fired.contains(StreamKind::Laser, 0))
+    {
+      ++count;
+    }
+  }
+
+  // Over 10 s the accumulated residual is (10.0 - 70 * (1/7)) = 0, so count
+  // should be exactly 70.  Use EXPECT_NEAR in case of FP edge cases.
+  EXPECT_NEAR(static_cast<int>(count), 70, 1);
+}
+
+TEST(AccumulatorModeTest, AccumulatorNonIntegerRatioMatchesTarget)
+{
+  // 3 Hz, dt=0.1 s, 100 ticks = 10 s.  Expected fires = 3 * 10 = 30.
+  // 1/3 s period; over 10 s residual = 10.0 - 30 * (1/3) = 0.0, exact.
+  RateScheduler sched(0.1);
+  sched.set_rate(StreamKind::Sonar, 0, 3.0, SchedulingMode::Accumulator);
+
+  std::size_t count = 0;
+  for (int i = 0; i < 100; ++i)
+  {
+    const FiredSet fired{ sched.tick() };
+    if (fired.contains(StreamKind::Sonar, 0))
+    {
+      ++count;
+    }
+  }
+
+  EXPECT_NEAR(static_cast<int>(count), 30, 1);
+}
+
+// ---------------------------------------------------------------------------
+// Mixed-mode test: snap and accumulator streams coexist independently
+// ---------------------------------------------------------------------------
+
+TEST(AccumulatorModeTest, AccumulatorIndependentOfSnap)
+{
+  // snap @ 5 Hz (period=2 ticks) → fires 50 times in 100 ticks.
+  // accum @ 7 Hz → fires ≈70 times in 100 ticks.
+  RateScheduler sched(0.1);
+  sched.set_rate(StreamKind::Odom, 0, 5.0, SchedulingMode::SnapToMultiple);
+  sched.set_rate(StreamKind::Laser, 0, 7.0, SchedulingMode::Accumulator);
+
+  std::size_t snap_count = 0;
+  std::size_t accum_count = 0;
+  for (int i = 0; i < 100; ++i)
+  {
+    const FiredSet fired{ sched.tick() };
+    if (fired.contains(StreamKind::Odom, 0))
+    {
+      ++snap_count;
+    }
+    if (fired.contains(StreamKind::Laser, 0))
+    {
+      ++accum_count;
+    }
+  }
+
+  EXPECT_EQ(snap_count, 50U);
+  EXPECT_NEAR(static_cast<int>(accum_count), 70, 1);
+}
+
+// ---------------------------------------------------------------------------
+// set_step_dt must not reset accumulator residual
+// ---------------------------------------------------------------------------
+
+TEST(AccumulatorModeTest, SetStepDtPreservesAccumulatorState)
+{
+  // 4 Hz accumulator at dt=0.1 s → period_seconds=0.25.
+  // Tick 1: accum=0.1 (no fire).  Tick 2: accum=0.2 (no fire).
+  // Now change dt to 0.2.  period_seconds is unchanged (dt-independent).
+  // Tick 3: accum = 0.2 + 0.2 = 0.4 >= 0.25 → fire, accum=0.15.
+  // Tick 4: accum = 0.15 + 0.2 = 0.35 >= 0.25 → fire, accum=0.10.
+  // If residual were reset to 0 at set_step_dt, tick 3 accum=0.2 → no fire.
+  RateScheduler sched(0.1);
+  sched.set_rate(StreamKind::Laser, 0, 4.0, SchedulingMode::Accumulator);
+
+  // Tick 1 and 2 at dt=0.1 — accumulate residual, no fires expected.
+  std::ignore = sched.tick();
+  std::ignore = sched.tick();
+
+  // Switch dt; residual must survive.
+  sched.set_step_dt(0.2);
+
+  // Tick 3: should fire because accumulated residual (0.2) + new dt (0.2) = 0.4 >= 0.25.
+  const FiredSet tick3{ sched.tick() };
+  EXPECT_TRUE(tick3.contains(StreamKind::Laser, 0)) << "Tick 3 must fire after dt change preserves residual";
+}
+
+// ---------------------------------------------------------------------------
+// Free helper tests: to_string and scheduling_mode_from_string
+// ---------------------------------------------------------------------------
+
+TEST(SchedulingModeStringTest, ToStringRoundTripsBothModes)
+{
+  EXPECT_EQ(to_string(SchedulingMode::SnapToMultiple), "snap_to_multiple");
+  EXPECT_EQ(to_string(SchedulingMode::Accumulator), "accumulator");
+}
+
+TEST(SchedulingModeStringTest, FromStringRejectsUnknown)
+{
+  const tl::expected<SchedulingMode, std::string> result = scheduling_mode_from_string("nope");
+  ASSERT_FALSE(result.has_value());
+  // Error message must mention the bad input and valid options.
+  ASSERT_TRUE(result.error().find("nope") != std::string::npos);
+  EXPECT_TRUE(result.error().find("snap_to_multiple") != std::string::npos);
+  EXPECT_TRUE(result.error().find("accumulator") != std::string::npos);
+}
+
+TEST(SchedulingModeStringTest, FromStringParsesValid)
+{
+  const tl::expected<SchedulingMode, std::string> snap = scheduling_mode_from_string("snap_to_multiple");
+  ASSERT_TRUE(snap.has_value());
+  EXPECT_EQ(snap.value(), SchedulingMode::SnapToMultiple);
+
+  const tl::expected<SchedulingMode, std::string> accum = scheduling_mode_from_string("accumulator");
+  ASSERT_TRUE(accum.has_value());
+  EXPECT_EQ(accum.value(), SchedulingMode::Accumulator);
 }
 
 }  // namespace

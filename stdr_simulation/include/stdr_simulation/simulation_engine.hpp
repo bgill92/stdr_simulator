@@ -129,6 +129,25 @@ public:
    */
   [[nodiscard]] double effective_sensor_rate(const std::string& robot_name, StreamKind kind, std::size_t index) const;
 
+  // --- Scheduling mode ---
+
+  /**
+   * @brief Set the scheduling mode applied to all stream registrations.
+   *
+   * Stores the mode and uses it in every subsequent `set_rate` call inside
+   * `register_sensor_streams`, `set_tf_rate`, and `set_odom_rate`.
+   *
+   * @warning Must be set before spawning robots; not retroactive.  Robots that
+   *          were already spawned continue to use the mode that was active when
+   *          they were registered.
+   *
+   * @param mode The scheduling strategy to apply.
+   */
+  void set_scheduling_mode(SchedulingMode mode);
+
+  /** @return The currently configured scheduling mode. */
+  [[nodiscard]] SchedulingMode scheduling_mode() const noexcept;
+
   // --- Robot lifecycle ---
 
   /**
@@ -208,6 +227,7 @@ private:
   double step_dt_{ kDefaultStepDt };
   double tf_rate_{ 0.0 };
   double odom_rate_{ 0.0 };
+  SchedulingMode scheduling_mode_{ SchedulingMode::SnapToMultiple };
 
   std::unordered_map<std::string, RobotSensorData> sensor_data_;
   std::unordered_map<std::string, RateScheduler> schedulers_;

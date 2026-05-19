@@ -180,12 +180,32 @@ public:
   }
 
   /**
-   * @brief Effective TF rate after snap-to-tick quantisation (1 / (period_ticks * step_dt)).
+   * @brief Scheduling strategy used by the backend's rate scheduler(s).
+   *
+   * The default get_effective_*_rate() implementations branch on this.
+   * Backends with a configurable scheduling mode override it; the default
+   * is SnapToMultiple, matching RateScheduler's default.
+   */
+  [[nodiscard]] virtual stdr_simulation::SchedulingMode get_scheduling_mode() const
+  {
+    return stdr_simulation::SchedulingMode::SnapToMultiple;
+  }
+
+  /**
+   * @brief Effective TF rate after quantisation.
    *
    * The default implementation derives the effective rate from the target
-   * rate and step_dt using the same rounding rule as RateScheduler.  Backends
-   * that own a scheduler (e.g. StandaloneBackend) may override to return the
-   * canonical engine value for a specific robot.
+   * rate and step_dt, branching on the scheduling mode reported by
+   * get_scheduling_mode().  Backends that own a scheduler (e.g.
+   * StandaloneBackend) may override to return the canonical engine value
+   * for a specific robot.
+   *
+   * A @p target <= 0 returns 0.0 in both SnapToMultiple and Accumulator modes
+   * by GUI convention: zero means "every tick / not rate-limited" and is
+   * displayed as 0 in the info panel.  This intentionally differs from
+   * RateScheduler::effective_rate(), which reports the sim rate for a zero
+   * target.  Keeping a uniform 0.0 here avoids a confusing mode-dependent
+   * display.
    */
   [[nodiscard]] virtual double get_effective_tf_rate() const
   {
@@ -195,6 +215,13 @@ public:
     {
       return 0.0;
     }
+    if (get_scheduling_mode() == stdr_simulation::SchedulingMode::Accumulator)
+    {
+      // Accumulator fires at the true target rate; clamp to the sim rate when
+      // target exceeds it, matching RateScheduler::effective_rate()'s logic.
+      const double sim_rate = 1.0 / dt;
+      return std::min(target, sim_rate);
+    }
     // Use std::round to match RateScheduler exactly: period_ticks = max(1, round(1 / (target * dt))).
     const double raw_period = 1.0 / (target * dt);
     const std::size_t period_ticks = std::max<std::size_t>(1, static_cast<std::size_t>(std::round(raw_period)));
@@ -202,9 +229,10 @@ public:
   }
 
   /**
-   * @brief Effective odom rate after snap-to-tick quantisation (1 / (period_ticks * step_dt)).
+   * @brief Effective odom rate after quantisation.
    *
-   * Same semantics as get_effective_tf_rate().
+   * Same semantics as get_effective_tf_rate(), including the zero-target
+   * convention: returns 0.0 for target <= 0 in both scheduling modes.
    */
   [[nodiscard]] virtual double get_effective_odom_rate() const
   {
@@ -213,6 +241,11 @@ public:
     if (target <= 0.0 || dt <= 0.0)
     {
       return 0.0;
+    }
+    if (get_scheduling_mode() == stdr_simulation::SchedulingMode::Accumulator)
+    {
+      const double sim_rate = 1.0 / dt;
+      return std::min(target, sim_rate);
     }
     const double raw_period = 1.0 / (target * dt);
     const std::size_t period_ticks = std::max<std::size_t>(1, static_cast<std::size_t>(std::round(raw_period)));

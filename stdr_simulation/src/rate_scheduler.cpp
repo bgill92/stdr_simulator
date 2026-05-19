@@ -3,10 +3,38 @@
 #include <algorithm>
 #include <cmath>
 #include <stdexcept>
+#include <string>
 #include <type_traits>
 
 namespace stdr_simulation
 {
+
+// ---------------------------------------------------------------------------
+// Free helpers
+// ---------------------------------------------------------------------------
+
+std::string_view to_string(SchedulingMode mode) noexcept
+{
+  if (mode == SchedulingMode::Accumulator)
+  {
+    return "accumulator";
+  }
+  return "snap_to_multiple";
+}
+
+tl::expected<SchedulingMode, std::string> scheduling_mode_from_string(std::string_view str)
+{
+  if (str == "snap_to_multiple")
+  {
+    return SchedulingMode::SnapToMultiple;
+  }
+  if (str == "accumulator")
+  {
+    return SchedulingMode::Accumulator;
+  }
+  return tl::unexpected<std::string>("unknown scheduling_mode '" + std::string(str) +
+                                     "'; expected 'snap_to_multiple' or 'accumulator'");
+}
 
 // ---------------------------------------------------------------------------
 // Key helpers
@@ -41,6 +69,7 @@ void RateScheduler::recompute_period(Entry& entry) const
     // Treat non-positive frequency as "fire every tick" — backward-compatible
     // default for sensors that omit a frequency in their config.
     entry.period_ticks = 1;
+    entry.period_seconds = 0.0;  // sentinel: fire unconditionally in accumulator mode
     return;
   }
   // Round to the nearest tick multiple.  Using std::round rather than floor so
@@ -51,6 +80,8 @@ void RateScheduler::recompute_period(Entry& entry) const
   // Clamp to at least 1: a target rate faster than the sim rate is silently
   // capped at the sim rate (one fire per tick).
   entry.period_ticks = std::max(std::size_t{ 1 }, snapped);
+  // Cache the dt-independent period used by accumulator mode.
+  entry.period_seconds = 1.0 / entry.freq_hz;
 }
 
 // ---------------------------------------------------------------------------
@@ -85,12 +116,29 @@ double RateScheduler::step_dt() const noexcept
 
 void RateScheduler::set_rate(StreamKind kind, std::size_t index, double freq_hz)
 {
+  set_rate(kind, index, freq_hz, SchedulingMode::SnapToMultiple);
+}
+
+void RateScheduler::set_rate(StreamKind kind, std::size_t index, double freq_hz, SchedulingMode scheduling_mode)
+{
   const uint64_t key = make_key(kind, index);
   Entry& entry = entries_[key];  // inserts default-constructed entry if absent
   entry.freq_hz = freq_hz;
+  entry.mode = scheduling_mode;
   recompute_period(entry);
-  // tick_count is intentionally preserved so an in-flight update does not
-  // reset the fire cadence mid-run.
+  // tick_count and accum_seconds are intentionally preserved so an in-flight
+  // update does not reset the fire cadence mid-run.
+}
+
+SchedulingMode RateScheduler::mode(StreamKind kind, std::size_t index) const
+{
+  const auto it = entries_.find(make_key(kind, index));
+  if (it == entries_.end())
+  {
+    // Return the default mode for consistency with period_ticks() returning 0.
+    return SchedulingMode::SnapToMultiple;
+  }
+  return it->second.mode;
 }
 
 void RateScheduler::clear()
@@ -106,7 +154,35 @@ std::vector<StreamEvent> RateScheduler::tick()
   for (auto& [key, entry] : entries_)
   {
     ++entry.tick_count;
-    if (entry.tick_count % entry.period_ticks == 0)
+
+    bool should_fire = false;
+    if (entry.mode == SchedulingMode::Accumulator)
+    {
+      if (entry.period_seconds <= 0.0)
+      {
+        // Non-positive freq → fire unconditionally, matching snap convention.
+        should_fire = true;
+      }
+      else
+      {
+        entry.accum_seconds += step_dt_;
+        if (entry.accum_seconds >= entry.period_seconds)
+        {
+          should_fire = true;
+          // Wrap residual into [0, period_seconds) so accum cannot grow unbounded
+          // when period_seconds < step_dt (target rate exceeds sim rate).  fmod is
+          // safe here because period_seconds is strictly positive at this point.
+          entry.accum_seconds = std::fmod(entry.accum_seconds, entry.period_seconds);
+        }
+      }
+    }
+    else
+    {
+      // SnapToMultiple: fire when tick count is an exact multiple of the period.
+      should_fire = (entry.tick_count % entry.period_ticks == 0);
+    }
+
+    if (should_fire)
     {
       fired.push_back(StreamEvent{ key_kind(key), key_index(key) });
     }
@@ -133,7 +209,21 @@ double RateScheduler::effective_rate(StreamKind kind, std::size_t index) const
   {
     return 0.0;
   }
-  return 1.0 / (static_cast<double>(it->second.period_ticks) * step_dt_);
+  const Entry& entry = it->second;
+  if (entry.mode == SchedulingMode::Accumulator)
+  {
+    // Accumulator fires at the true target rate rather than a snapped multiple,
+    // so report the target directly — clamped to the sim rate when the target
+    // exceeds it (period_seconds < step_dt_) or when freq is non-positive (every tick).
+    const double sim_rate = 1.0 / step_dt_;
+    if (entry.freq_hz > 0.0 && entry.freq_hz <= sim_rate)
+    {
+      return entry.freq_hz;
+    }
+    return sim_rate;
+  }
+  // SnapToMultiple: effective rate is determined by the snapped period.
+  return 1.0 / (static_cast<double>(entry.period_ticks) * step_dt_);
 }
 
 std::size_t RateScheduler::period_ticks(StreamKind kind, std::size_t index) const
