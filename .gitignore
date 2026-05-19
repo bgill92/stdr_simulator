@@ -62,3 +62,8 @@ core
 
 .claude/analysis
 .claude/plans
+
+# GUI #
+######################
+# Dear ImGui auto-saves panel layout here; not source.
+imgui.ini
