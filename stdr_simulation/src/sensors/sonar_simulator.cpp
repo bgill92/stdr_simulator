@@ -39,8 +39,15 @@ SonarScan SonarSimulator::simulate(const Pose2D& sensor_pose_world, const SonarC
   const double origin_grid_x = (sensor_pose_world.x - map.origin.x) / map.resolution;
   const double origin_grid_y = (sensor_pose_world.y - map.origin.y) / map.resolution;
 
-  // Track the minimum step count across all rays; start at max so any hit wins.
-  int min_steps = max_steps + 1;
+  // `hit` is the real no-hit sentinel.  The old code used `min_steps = max_steps + 1`
+  // as a numeric sentinel, but that caused a systematic one-cell bias
+  // (max_range + resolution) when noise was applied to a no-hit reading.
+  // The `hit` flag lets us return +infinity immediately on no-hit, bypassing
+  // both noise and the clamp entirely.
+  bool hit = false;
+  // INT_MAX makes the "unset" state self-evident: min_steps is only read after
+  // `hit` becomes true, so any finite step count will always be smaller.
+  int min_steps = std::numeric_limits<int>::max();
 
   for (double angle = -config.cone_angle / 2.0; angle <= config.cone_angle / 2.0; angle += kAngleStepRad)
   {
@@ -63,6 +70,7 @@ SonarScan SonarSimulator::simulate(const Pose2D& sensor_pose_world, const SonarC
           static_cast<std::size_t>(cell_y) * static_cast<std::size_t>(map.width) + static_cast<std::size_t>(cell_x);
       if (map.data[idx] > kOccupancyThreshold)
       {
+        hit = true;
         if (step < min_steps)
         {
           min_steps = step;
@@ -70,6 +78,14 @@ SonarScan SonarSimulator::simulate(const Pose2D& sensor_pose_world, const SonarC
         break;
       }
     }
+  }
+
+  // No ray hit any obstacle: return +infinity directly without noise or clamping.
+  // Applying noise to a no-hit reading would introduce a systematic bias of one
+  // map cell; the caller should interpret +infinity as "beyond max range".
+  if (!hit)
+  {
+    return SonarScan{ std::numeric_limits<double>::infinity() };
   }
 
   // Convert the winning step count back to metres.
