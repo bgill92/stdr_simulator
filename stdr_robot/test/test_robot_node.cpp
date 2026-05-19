@@ -8,6 +8,7 @@
 #include <rclcpp/rclcpp.hpp>
 
 #include <chrono>
+#include <cmath>
 #include <map>
 #include <memory>
 #include <string>
@@ -400,6 +401,80 @@ TEST_F(RobotNodeTest, SchedulingModeAcceptsAccumulator)
       node_->set_parameter(rclcpp::Parameter("scheduling_mode", "accumulator"));
   ASSERT_TRUE(result.successful);
   EXPECT_EQ(node_->get_parameter("scheduling_mode").as_string(), std::string("accumulator"));
+}
+
+// ─── Center-of-rotation integration ─────────────────────────────────────────
+
+// A robot node configured with a non-origin center_of_rotation and a pure
+// rotation command (zero linear velocity) must pivot its body origin about the
+// configured world-frame pivot point.  The odom topic carries the body position
+// so we can verify: the origin moved AND the distance from the body origin to
+// the fixed world-frame pivot equals the body-frame pivot magnitude.
+TEST_F(RobotNodeTest, OffsetCenterOfRotationPivotsPoseAboutConfiguredPoint)
+{
+  // Pivot is 1 m ahead of the body origin in the body frame.  The robot starts
+  // at (0, 0, 0), so the world-frame pivot starts at (1, 0).
+  stdr_simulation::RobotConfig cfg;
+  cfg.initial_pose = { 0.0, 0.0, 0.0 };
+  cfg.footprint.radius = 0.05;
+  cfg.kinematic_model.type = "ideal";
+  // Direct RobotConfig construction bypasses load_robot_config footprint
+  // validation; the wide pivot is intentional to produce a measurable arc.
+  cfg.center_of_rotation = { 1.0, 0.0 };
+
+  node_->configure(cfg);
+
+  rclcpp::executors::SingleThreadedExecutor executor;
+  executor.add_node(node_);
+
+  auto helper_node = rclcpp::Node::make_shared("test_helper_cor");
+  executor.add_node(helper_node);
+
+  // Publish a pure rotation command.  The sim timer fires at 0.1 s intervals;
+  // the cmd_vel subscription processes the message in between ticks.
+  auto cmd_pub = helper_node->create_publisher<geometry_msgs::msg::Twist>("/robot0/cmd_vel", 10);
+  geometry_msgs::msg::Twist cmd;
+  cmd.linear.x = 0.0;
+  cmd.angular.z = 1.0;
+
+  // Collect odom samples.  We wait until we have received enough messages to
+  // guarantee that at least several ticks have run with the rotation command
+  // applied, making the arc displacement unambiguous.
+  constexpr int kMinOdomCount = 5;
+  nav_msgs::msg::Odometry last_odom;
+  int odom_count = 0;
+  auto odom_sub = helper_node->create_subscription<nav_msgs::msg::Odometry>(
+      "/robot0/odom", 10, [&last_odom, &odom_count](const nav_msgs::msg::Odometry::SharedPtr msg) {
+        last_odom = *msg;
+        ++odom_count;
+      });
+
+  // Spin briefly to let subscriptions wire up, then publish the command.
+  executor.spin_some(50ms);
+  cmd_pub->publish(cmd);
+
+  const bool ok = spin_until(
+      executor, [&odom_count]() { return odom_count >= kMinOdomCount; }, 3000ms);
+  ASSERT_TRUE(ok) << "Timed out waiting for odometry after offset center-of-rotation command";
+
+  const double body_x = last_odom.pose.pose.position.x;
+  const double body_y = last_odom.pose.pose.position.y;
+
+  // The world-frame pivot starts at (initial_x + pivot_x, initial_y + pivot_y)
+  // = (1, 0).  For v=0, the ideal model keeps the pivot fixed in world frame
+  // throughout, so the distance from body origin to pivot equals the pivot magnitude.
+  constexpr double kPivotWorldX = 1.0;
+  constexpr double kPivotWorldY = 0.0;
+  constexpr double kPivotRadius = 1.0;  // std::hypot(1.0, 0.0)
+
+  // After several ticks with w=1 rad/s the body must have moved from (0, 0).
+  const double displacement = std::hypot(body_x, body_y);
+  EXPECT_GT(displacement, 1e-6) << "Body origin should have moved with offset pivot during pure rotation";
+
+  // Distance from body origin to the fixed world-frame pivot must equal the
+  // pivot radius — the arc radius is preserved regardless of heading.
+  const double dist_to_pivot = std::hypot(body_x - kPivotWorldX, body_y - kPivotWorldY);
+  EXPECT_NEAR(dist_to_pivot, kPivotRadius, 1e-3);
 }
 
 }  // namespace

@@ -14,9 +14,11 @@ specifications:
     allowed: [filename, robot_specifications]
     required: [robot_specifications]
   robot_specifications:
-    allowed: [initial_pose, footprint, laser, sonar, rfid_reader, co2_sensor, thermal_sensor, sound_sensor, kinematic]
+    allowed: [initial_pose, center_of_rotation, footprint, laser, sonar, rfid_reader, co2_sensor, thermal_sensor, sound_sensor, kinematic]
   initial_pose:
     allowed: [x, y, theta]
+  center_of_rotation:
+    allowed: [x, y]
   pose:
     allowed: [x, y, theta]
   footprint:

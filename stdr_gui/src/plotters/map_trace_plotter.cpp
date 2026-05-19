@@ -99,14 +99,15 @@ public:
       }
     }
 
-    // Cache the footprint once; the vertex list does not change at runtime in
-    // the standalone simulator.  A single attempt is sufficient — if the
-    // backend returns empty (circle-only robot or unimplemented footprint()),
-    // the fallback dot rendering in on_render handles it without retrying
-    // every frame.
+    // Cache the footprint and center-of-rotation once; neither changes at
+    // runtime in the standalone simulator.  A single attempt is sufficient —
+    // if the backend returns an empty footprint (circle-only robot or
+    // unimplemented footprint()), the fallback dot rendering in on_render
+    // handles it without retrying every frame.
     if (!footprint_fetched_)
     {
       footprint_robot_frame_ = sim.footprint(robot_);
+      center_of_rotation_robot_frame_ = sim.center_of_rotation(robot_);
       footprint_fetched_ = true;
     }
 
@@ -259,6 +260,19 @@ public:
         ImPlot::PlotLine("##heading", arr_x, arr_y, 2);
       }
 
+      // Center-of-rotation dot: transform the body-frame pivot to map frame
+      // using the same inline rigid transform as the footprint above.
+      {
+        const double cx = std::cos(latest_pose_.theta);
+        const double sx = std::sin(latest_pose_.theta);
+        const double cor_x =
+            latest_pose_.x + cx * center_of_rotation_robot_frame_.x - sx * center_of_rotation_robot_frame_.y;
+        const double cor_y =
+            latest_pose_.y + sx * center_of_rotation_robot_frame_.x + cx * center_of_rotation_robot_frame_.y;
+        ImPlot::SetNextMarkerStyle(ImPlotMarker_Circle, 4.0f, ImVec4(0, 0, 0, 1));
+        ImPlot::PlotScatter("##center_of_rotation", &cor_x, &cor_y, 1);
+      }
+
       ImPlot::EndPlot();
     }
 
@@ -327,6 +341,7 @@ private:
   std::string robot_;
   std::deque<stdr_simulation::Pose2D> trail_;
   std::vector<stdr_simulation::Point2D> footprint_robot_frame_;
+  stdr_simulation::Point2D center_of_rotation_robot_frame_{};
   bool footprint_fetched_{ false };
 
   GLuint map_texture_id_{ 0 };

@@ -244,6 +244,11 @@ struct RobotConfig
 {
   Pose2D initial_pose;
   Footprint footprint;
+  /** Point about which the robot rotates, expressed in robot body frame.
+   *  Defaults to (0,0), i.e. the robot's geometric centre. Override when
+   *  the physical pivot differs from the coordinate origin (e.g. rear-axle
+   *  steering). */
+  Point2D center_of_rotation;
   std::vector<LaserConfig> laser_sensors;
   std::vector<SonarConfig> sonar_sensors;
   std::vector<RfidSensorConfig> rfid_sensors;

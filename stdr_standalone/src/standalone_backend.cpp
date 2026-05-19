@@ -674,4 +674,15 @@ std::vector<stdr_simulation::Point2D> StandaloneBackend::footprint(const std::st
   return robot->config.footprint.points;
 }
 
+std::optional<stdr_simulation::Point2D> StandaloneBackend::center_of_rotation(const std::string& robot_id) const
+{
+  const std::lock_guard<std::mutex> lock(sim_mutex_);
+  const stdr_simulation::world::RobotState* robot = world_model_.get_robot(robot_id);
+  if (robot == nullptr)
+  {
+    return std::nullopt;
+  }
+  return robot->config.center_of_rotation;
+}
+
 }  // namespace stdr_standalone

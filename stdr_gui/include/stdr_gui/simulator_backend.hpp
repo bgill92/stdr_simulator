@@ -366,6 +366,16 @@ public:
     return {};
   }
 
+  /** @brief Return the center-of-rotation of @p robot_id in robot body frame,
+   *         or nullopt if not found.
+   *
+   *  @note Default returns nullopt so backends that have not yet wired this
+   *        (e.g. Ros2Backend) compile and behave safely without overriding. */
+  [[nodiscard]] virtual std::optional<stdr_simulation::Point2D> center_of_rotation(const std::string& /*robot_id*/) const
+  {
+    return std::nullopt;
+  }
+
   /** @brief Return the elapsed simulation time in seconds.
    *  @return 0.0 if the backend has not yet wired this method. */
   [[nodiscard]] virtual double sim_time() const

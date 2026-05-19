@@ -5,6 +5,7 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
+#include <cmath>
 #include <numbers>
 #include <string>
 
@@ -139,6 +140,77 @@ TEST(SimulationEngineTest, StepWithoutMapSkipsRaycastSensors)
   ASSERT_THAT(data->laser_scans, SizeIs(1));
   // The scan was never populated, so ranges will be empty.
   EXPECT_THAT(data->laser_scans[0].ranges, SizeIs(0));
+}
+
+// ---- Center-of-rotation integration tests -----------------------------------
+
+// A robot configured with center_of_rotation={0,0} and a pure rotation command
+// (v=0, w≠0) must not translate its body origin — the engine path mirrors the
+// unit-level motion model behaviour across the full spawn+step pipeline.
+TEST(SimulationEngineTest, DefaultCenterOfRotationPureRotationStaysInPlace)
+{
+  world::WorldModel world;
+  SimulationEngine engine{ world };
+
+  const Pose2D start{ 1.0, 2.0, 0.0 };
+  const std::string name = engine.spawn_robot(minimal_robot(), start);
+
+  // Pure spin with zero linear velocity — body origin must not translate.
+  engine.set_cmd_vel(name, Twist2D{ 0.0, 0.0, 1.0 });
+  engine.step(0.1);
+
+  const world::RobotState* state = world.get_robot(name);
+  ASSERT_THAT(state, NotNull());
+  EXPECT_NEAR(state->pose.x, start.x, 1e-9);
+  EXPECT_NEAR(state->pose.y, start.y, 1e-9);
+  // Heading must have rotated by w*dt = 0.1 rad.
+  EXPECT_NEAR(state->pose.theta, 0.1, 1e-9);
+}
+
+// A robot configured with a non-origin center_of_rotation and a pure rotation
+// command must pivot its body origin about the configured world-frame pivot
+// point.  The invariant tested is that the distance from the body origin to the
+// fixed world-frame pivot equals the configured body-frame pivot magnitude —
+// this is independent of the heading and requires no precomputed coordinates.
+TEST(SimulationEngineTest, OffsetCenterOfRotationPivotsPoseAboutConfiguredPoint)
+{
+  world::WorldModel world;
+  SimulationEngine engine{ world };
+
+  // Pivot is 1 m ahead of the body origin in the body frame.  With the robot
+  // starting at origin facing +x, the world-frame pivot starts at (1, 0).
+  RobotConfig cfg = minimal_robot();
+  // Direct RobotConfig construction bypasses load_robot_config footprint
+  // validation; the wide pivot is intentional to produce a measurable arc.
+  cfg.center_of_rotation = { 1.0, 0.0 };
+
+  const Pose2D start{ 0.0, 0.0, 0.0 };
+  const std::string name = engine.spawn_robot(cfg, start);
+
+  // For v=0, the ideal model keeps the pivot fixed in world frame regardless of w.
+  const double pivot_world_x = start.x + cfg.center_of_rotation.x;
+  const double pivot_world_y = start.y + cfg.center_of_rotation.y;
+
+  // Pure spin — ten steps to accumulate a measurable arc displacement.
+  engine.set_cmd_vel(name, Twist2D{ 0.0, 0.0, 1.0 });
+  for (int step = 0; step < 10; ++step)
+  {
+    engine.step(0.1);
+  }
+
+  const world::RobotState* state = world.get_robot(name);
+  ASSERT_THAT(state, NotNull());
+
+  // Body origin must have translated — pure rotation about a non-origin pivot
+  // sweeps the body origin in an arc.
+  const double displacement = std::hypot(state->pose.x - start.x, state->pose.y - start.y);
+  EXPECT_GT(displacement, 1e-6);
+
+  // Distance from body origin to the fixed world-frame pivot must equal the
+  // body-frame pivot magnitude (1.0 m) — the arc radius is preserved throughout.
+  const double pivot_radius = std::hypot(cfg.center_of_rotation.x, cfg.center_of_rotation.y);
+  const double dist_to_pivot = std::hypot(state->pose.x - pivot_world_x, state->pose.y - pivot_world_y);
+  EXPECT_NEAR(dist_to_pivot, pivot_radius, 1e-9);
 }
 
 // ---- Rate-scheduler integration tests ---------------------------------------

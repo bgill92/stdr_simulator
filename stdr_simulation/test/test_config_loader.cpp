@@ -231,6 +231,58 @@ TEST(LoadRobotConfig, FootprintPointsBareKeyParsed)
   EXPECT_DOUBLE_EQ(config->footprint.points[1].x, -0.3);
 }
 
+// ---- center_of_rotation parsing and validation ------------------------------
+
+// Omitting center_of_rotation must default to {0, 0} without error.
+TEST(LoadRobotConfig, CenterOfRotationDefaultsToOrigin)
+{
+  const tl::expected<RobotConfig, std::string> config =
+      load_robot_config(fixture("simple_robot.yaml"), std::string(FIXTURE_DIR));
+  ASSERT_TRUE(config.has_value()) << config.error();
+  EXPECT_DOUBLE_EQ(config->center_of_rotation.x, 0.0);
+  EXPECT_DOUBLE_EQ(config->center_of_rotation.y, 0.0);
+}
+
+// A valid center_of_rotation inside a polygon footprint is parsed correctly.
+TEST(LoadRobotConfig, CenterOfRotationInsidePolygonParsed)
+{
+  const tl::expected<RobotConfig, std::string> config =
+      load_robot_config(fixture("robot_cor_valid.yaml"), std::string(FIXTURE_DIR));
+  ASSERT_TRUE(config.has_value()) << config.error();
+  EXPECT_DOUBLE_EQ(config->center_of_rotation.x, 0.05);
+  EXPECT_DOUBLE_EQ(config->center_of_rotation.y, 0.0);
+}
+
+// A center_of_rotation on a polygon edge is accepted (on-boundary is inside).
+TEST(LoadRobotConfig, CenterOfRotationOnPolygonEdgeAccepted)
+{
+  const tl::expected<RobotConfig, std::string> config =
+      load_robot_config(fixture("robot_cor_on_edge.yaml"), std::string(FIXTURE_DIR));
+  ASSERT_TRUE(config.has_value()) << config.error();
+  EXPECT_DOUBLE_EQ(config->center_of_rotation.x, 0.1);
+  EXPECT_DOUBLE_EQ(config->center_of_rotation.y, 0.0);
+}
+
+// A center_of_rotation outside a polygon footprint is rejected with an error.
+TEST(LoadRobotConfig, CenterOfRotationOutsidePolygonReturnsError)
+{
+  const tl::expected<RobotConfig, std::string> config =
+      load_robot_config(fixture("robot_cor_outside_polygon.yaml"), std::string(FIXTURE_DIR));
+  EXPECT_FALSE(config.has_value());
+  EXPECT_FALSE(config.error().empty());
+  EXPECT_NE(config.error().find("center_of_rotation"), std::string::npos);
+}
+
+// A center_of_rotation outside a circle footprint is rejected with an error.
+TEST(LoadRobotConfig, CenterOfRotationOutsideCircleReturnsError)
+{
+  const tl::expected<RobotConfig, std::string> config =
+      load_robot_config(fixture("robot_cor_outside_circle.yaml"), std::string(FIXTURE_DIR));
+  EXPECT_FALSE(config.has_value());
+  EXPECT_FALSE(config.error().empty());
+  EXPECT_NE(config.error().find("center_of_rotation"), std::string::npos);
+}
+
 // ---- default frame_id assignment ---------------------------------------------
 
 // A sensor without frame_id in the YAML gets a stable positional default so

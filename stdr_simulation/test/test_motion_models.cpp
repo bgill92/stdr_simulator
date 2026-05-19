@@ -125,5 +125,132 @@ TEST(OmniMotionModelTest, CombinedMotion)
   EXPECT_GT(result.theta, 0.0);
 }
 
+// ---- Center-of-rotation tests: IdealMotionModel -----------------------------
+
+// Zero pivot reproduces pre-existing results exactly.
+TEST(IdealMotionModelCenterOfRotationTest, ZeroPivotMatchesDefaultBehaviour)
+{
+  const IdealMotionModel model;
+  const Pose2D start{ 1.0, 2.0, 0.3 };
+  const Twist2D cmd{ 1.0, 0.0, 0.5 };
+  const Point2D zero_pivot{ 0.0, 0.0 };
+  // update() with explicit zero pivot must produce an identical result to
+  // calling update() without the parameter.
+  const Pose2D without_pivot = model.update(start, cmd, kDt, zero_noise_config());
+  const Pose2D with_zero_pivot = model.update(start, cmd, kDt, zero_noise_config(), zero_pivot);
+  EXPECT_THAT(with_zero_pivot.x, DoubleNear(without_pivot.x, kTol));
+  EXPECT_THAT(with_zero_pivot.y, DoubleNear(without_pivot.y, kTol));
+  EXPECT_THAT(with_zero_pivot.theta, DoubleNear(without_pivot.theta, kTol));
+}
+
+// Straight-line motion (zero angular velocity): center_of_rotation has no effect.
+// Body-origin path must be identical regardless of the pivot offset.
+TEST(IdealMotionModelCenterOfRotationTest, StraightLineUnaffectedByPivot)
+{
+  const IdealMotionModel model;
+  const Pose2D start{ 0.0, 0.0, 0.0 };
+  // Pure forward motion — no rotation, so pivot is irrelevant.
+  const Twist2D cmd{ 1.0, 0.0, 0.0 };
+  const Point2D pivot{ 0.5, 0.3 };
+  const Pose2D without_pivot = model.update(start, cmd, kDt, zero_noise_config());
+  const Pose2D with_pivot = model.update(start, cmd, kDt, zero_noise_config(), pivot);
+  EXPECT_THAT(with_pivot.x, DoubleNear(without_pivot.x, kTol));
+  EXPECT_THAT(with_pivot.y, DoubleNear(without_pivot.y, kTol));
+  EXPECT_THAT(with_pivot.theta, DoubleNear(without_pivot.theta, kTol));
+}
+
+// Offset pivot, pure rotation (v=0, w≠0): the body origin sweeps an arc of
+// radius |c| around the world-frame pivot point, so the origin-to-pivot
+// distance must remain constant and the origin must actually move.
+TEST(IdealMotionModelCenterOfRotationTest, PureRotationAboutOffsetPivotSweepsArc)
+{
+  const IdealMotionModel model;
+  // Robot starts at origin facing along +x.
+  const Pose2D start{ 0.0, 0.0, 0.0 };
+  // Pivot is 1 m ahead in body frame — world pivot starts at (1, 0).
+  const Point2D pivot{ 1.0, 0.0 };
+  // Pure spin — differential drive with v=0 keeps the pivot fixed in world frame.
+  const Twist2D cmd{ 0.0, 0.0, 1.0 };
+
+  // World-frame pivot position does not move during pure rotation (v=0).
+  const double pivot_world_x = start.x + pivot.x;  // = 1.0
+  const double pivot_world_y = start.y + pivot.y;  // = 0.0
+
+  // Run several steps to get a measurable arc displacement.
+  Pose2D pose = start;
+  for (int step = 0; step < 10; ++step)
+  {
+    pose = model.update(pose, cmd, kDt, zero_noise_config(), pivot);
+  }
+
+  // Body origin must have moved.
+  EXPECT_GT(std::hypot(pose.x - start.x, pose.y - start.y), 1e-6);
+
+  // Distance from body origin to the world-frame pivot must equal |pivot| = 1.
+  const double dist_to_pivot = std::hypot(pose.x - pivot_world_x, pose.y - pivot_world_y);
+  EXPECT_THAT(dist_to_pivot, DoubleNear(1.0, 1e-9));
+}
+
+// ---- Center-of-rotation tests: OmniMotionModel ------------------------------
+
+// Zero pivot reproduces pre-existing results exactly.
+TEST(OmniMotionModelCenterOfRotationTest, ZeroPivotMatchesDefaultBehaviour)
+{
+  const OmniMotionModel model;
+  const Pose2D start{ 3.0, -1.5, 0.8 };
+  const Twist2D cmd{ 1.0, 0.5, 0.4 };
+  const Point2D zero_pivot{ 0.0, 0.0 };
+  const Pose2D without_pivot = model.update(start, cmd, kDt, zero_noise_config());
+  const Pose2D with_zero_pivot = model.update(start, cmd, kDt, zero_noise_config(), zero_pivot);
+  EXPECT_THAT(with_zero_pivot.x, DoubleNear(without_pivot.x, kTol));
+  EXPECT_THAT(with_zero_pivot.y, DoubleNear(without_pivot.y, kTol));
+  EXPECT_THAT(with_zero_pivot.theta, DoubleNear(without_pivot.theta, kTol));
+}
+
+// Straight-line motion (zero angular velocity): pivot has no effect.
+TEST(OmniMotionModelCenterOfRotationTest, StraightLineUnaffectedByPivot)
+{
+  const OmniMotionModel model;
+  const Pose2D start{ 0.0, 0.0, 0.0 };
+  // Pure forward + lateral — no rotation.
+  const Twist2D cmd{ 1.0, 0.5, 0.0 };
+  const Point2D pivot{ 0.4, -0.2 };
+  const Pose2D without_pivot = model.update(start, cmd, kDt, zero_noise_config());
+  const Pose2D with_pivot = model.update(start, cmd, kDt, zero_noise_config(), pivot);
+  EXPECT_THAT(with_pivot.x, DoubleNear(without_pivot.x, kTol));
+  EXPECT_THAT(with_pivot.y, DoubleNear(without_pivot.y, kTol));
+  EXPECT_THAT(with_pivot.theta, DoubleNear(without_pivot.theta, kTol));
+}
+
+// Offset pivot, pure rotation (vx=0, vy=0, w≠0): body origin sweeps an arc
+// of radius |c| around the fixed world-frame pivot point.
+TEST(OmniMotionModelCenterOfRotationTest, PureRotationAboutOffsetPivotSweepsArc)
+{
+  const OmniMotionModel model;
+  const Pose2D start{ 0.0, 0.0, 0.0 };
+  // Pivot is 1 m to the side (y direction) in body frame — world pivot = (0, 1).
+  const Point2D pivot{ 0.0, 1.0 };
+  const Twist2D cmd{ 0.0, 0.0, 1.0 };
+
+  // pivot.x == 0 here, so the general body_to_pivot_pose formula simplifies:
+  // world_x = body_x + pivot.x*cos(θ) - pivot.y*sin(θ) → start.x - pivot.y*sin(θ).
+  // world_y = body_y + pivot.x*sin(θ) + pivot.y*cos(θ) → start.y + pivot.y*cos(θ).
+  const double pivot_world_x = start.x - pivot.y * std::sin(start.theta);  // = 0.0
+  const double pivot_world_y = start.y + pivot.y * std::cos(start.theta);  // = 1.0
+
+  Pose2D pose = start;
+  for (int step = 0; step < 10; ++step)
+  {
+    pose = model.update(pose, cmd, kDt, zero_noise_config(), pivot);
+  }
+
+  // Body origin must have moved.
+  EXPECT_GT(std::hypot(pose.x - start.x, pose.y - start.y), 1e-6);
+
+  // Distance from body origin to the world-frame pivot must equal |pivot| = 1.
+  const double dist_to_pivot = std::hypot(pose.x - pivot_world_x, pose.y - pivot_world_y);
+  EXPECT_THAT(dist_to_pivot, DoubleNear(1.0, 1e-9));
+}
+
 }  // namespace
 }  // namespace stdr_simulation::motion
