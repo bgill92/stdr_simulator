@@ -3,10 +3,38 @@
 #include <algorithm>
 #include <cmath>
 #include <stdexcept>
+#include <string>
 #include <type_traits>
 
 namespace stdr_simulation
 {
+
+// ---------------------------------------------------------------------------
+// Free helpers
+// ---------------------------------------------------------------------------
+
+std::string_view to_string(SchedulingMode mode) noexcept
+{
+  if (mode == SchedulingMode::Accumulator)
+  {
+    return "accumulator";
+  }
+  return "snap_to_multiple";
+}
+
+tl::expected<SchedulingMode, std::string> scheduling_mode_from_string(std::string_view str)
+{
+  if (str == "snap_to_multiple")
+  {
+    return SchedulingMode::SnapToMultiple;
+  }
+  if (str == "accumulator")
+  {
+    return SchedulingMode::Accumulator;
+  }
+  return tl::unexpected<std::string>("unknown scheduling_mode '" + std::string(str) +
+                                     "'; expected 'snap_to_multiple' or 'accumulator'");
+}
 
 // ---------------------------------------------------------------------------
 // Key helpers

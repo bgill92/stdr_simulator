@@ -7,6 +7,9 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <string>
+#include <string_view>
+#include <tl_expected/expected.hpp>
 #include <unordered_map>
 #include <vector>
 
@@ -56,6 +59,25 @@ enum class SchedulingMode
    *  Average rate matches target; carries sub-tick jitter. */
   Accumulator,
 };
+
+/**
+ * @brief Return a canonical lowercase string for a SchedulingMode.
+ *
+ * @param mode The scheduling mode to convert.
+ * @return `"snap_to_multiple"` or `"accumulator"`.
+ */
+[[nodiscard]] std::string_view to_string(SchedulingMode mode) noexcept;
+
+/**
+ * @brief Parse a SchedulingMode from a string.
+ *
+ * Accepted values: `"snap_to_multiple"`, `"accumulator"` (case-sensitive).
+ *
+ * @param str Input string to parse.
+ * @return The matching SchedulingMode, or an error message describing the
+ *         accepted values and the unrecognised input.
+ */
+[[nodiscard]] tl::expected<SchedulingMode, std::string> scheduling_mode_from_string(std::string_view str);
 
 /** A stream that should fire this tick. */
 struct StreamEvent

@@ -5,6 +5,7 @@
 
 #include <cstddef>
 #include <stdexcept>
+#include <string>
 #include <tuple>
 #include <vector>
 
@@ -533,6 +534,37 @@ TEST(AccumulatorModeTest, SetStepDtPreservesAccumulatorState)
   // Tick 3: should fire because accumulated residual (0.2) + new dt (0.2) = 0.4 >= 0.25.
   const FiredSet tick3{ sched.tick() };
   EXPECT_TRUE(tick3.contains(StreamKind::Laser, 0)) << "Tick 3 must fire after dt change preserves residual";
+}
+
+// ---------------------------------------------------------------------------
+// Free helper tests: to_string and scheduling_mode_from_string
+// ---------------------------------------------------------------------------
+
+TEST(SchedulingModeStringTest, ToStringRoundTripsBothModes)
+{
+  EXPECT_EQ(to_string(SchedulingMode::SnapToMultiple), "snap_to_multiple");
+  EXPECT_EQ(to_string(SchedulingMode::Accumulator), "accumulator");
+}
+
+TEST(SchedulingModeStringTest, FromStringRejectsUnknown)
+{
+  const tl::expected<SchedulingMode, std::string> result = scheduling_mode_from_string("nope");
+  ASSERT_FALSE(result.has_value());
+  // Error message must mention the bad input and valid options.
+  ASSERT_TRUE(result.error().find("nope") != std::string::npos);
+  EXPECT_TRUE(result.error().find("snap_to_multiple") != std::string::npos);
+  EXPECT_TRUE(result.error().find("accumulator") != std::string::npos);
+}
+
+TEST(SchedulingModeStringTest, FromStringParsesValid)
+{
+  const tl::expected<SchedulingMode, std::string> snap = scheduling_mode_from_string("snap_to_multiple");
+  ASSERT_TRUE(snap.has_value());
+  EXPECT_EQ(snap.value(), SchedulingMode::SnapToMultiple);
+
+  const tl::expected<SchedulingMode, std::string> accum = scheduling_mode_from_string("accumulator");
+  ASSERT_TRUE(accum.has_value());
+  EXPECT_EQ(accum.value(), SchedulingMode::Accumulator);
 }
 
 }  // namespace

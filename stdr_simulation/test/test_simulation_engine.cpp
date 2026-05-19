@@ -317,5 +317,24 @@ TEST(SimulationEngineTest, InvalidStepDtThrows)
   EXPECT_THROW(SimulationEngine(world, -0.1), std::invalid_argument);
 }
 
+// With Accumulator mode and a 7 Hz laser at dt=0.1 s, the effective rate must
+// match the true target (7 Hz) rather than the snapped 10 Hz.
+TEST(SimulationEngineTest, SchedulingModeAppliesToSpawnedRobots)
+{
+  world::WorldModel world;
+  SimulationEngine engine{ world, 0.1 };
+
+  engine.set_scheduling_mode(SchedulingMode::Accumulator);
+
+  // 7 Hz laser — SnapToMultiple would give 10 Hz (period_ticks=1); Accumulator
+  // should keep the true target of 7 Hz.
+  RobotConfig cfg = robot_with_laser();
+  cfg.laser_sensors[0].frequency = 7.0;
+
+  const std::string name = engine.spawn_robot(cfg, Pose2D{ 1.0, 1.0, 0.0 });
+
+  EXPECT_NEAR(engine.effective_sensor_rate(name, StreamKind::Laser, 0), 7.0, 1e-9);
+}
+
 }  // namespace
 }  // namespace stdr_simulation

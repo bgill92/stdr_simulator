@@ -378,5 +378,29 @@ TEST_F(RobotNodeTest, PerSensorRegistrationFromConfig)
   EXPECT_DOUBLE_EQ(node_->effective_sonar_rate(0), 10.0);
 }
 
+// ─── scheduling_mode parameter ──────────────────────────────────────────────
+
+TEST_F(RobotNodeTest, SchedulingModeDefaultsToSnapToMultiple)
+{
+  EXPECT_EQ(node_->get_parameter("scheduling_mode").as_string(), std::string("snap_to_multiple"));
+}
+
+TEST_F(RobotNodeTest, SchedulingModeRejectsInvalidValue)
+{
+  const rcl_interfaces::msg::SetParametersResult result =
+      node_->set_parameter(rclcpp::Parameter("scheduling_mode", "garbage"));
+  EXPECT_FALSE(result.successful);
+  // Rejection reason must mention at least one valid option.
+  EXPECT_NE(result.reason.find("snap_to_multiple"), std::string::npos);
+}
+
+TEST_F(RobotNodeTest, SchedulingModeAcceptsAccumulator)
+{
+  const rcl_interfaces::msg::SetParametersResult result =
+      node_->set_parameter(rclcpp::Parameter("scheduling_mode", "accumulator"));
+  ASSERT_TRUE(result.successful);
+  EXPECT_EQ(node_->get_parameter("scheduling_mode").as_string(), std::string("accumulator"));
+}
+
 }  // namespace
 }  // namespace stdr_robot
