@@ -30,6 +30,16 @@ constexpr float kCenterDotRadius = 4.0f;            // Center dot radius in pixe
 constexpr float kCenterOfRotationDotRadius = 4.0f;  // Center-of-rotation dot radius in pixels.
 constexpr float kMinScreenRadius = 8.0f;            // Minimum robot display radius in pixels.
 
+// Map-info overlay layout constants — shared by render_map_info_overlay and
+// map_info_overlay_rect so both functions see a single source of truth.
+constexpr float kMapInfoPadding = 8.0f;
+constexpr float kMapInfoWidth = 220.0f;
+// A single header strip height that fits one line of text with vertical padding.
+constexpr float kMapInfoHeaderHeight = 18.0f;
+constexpr float kMapInfoLineHeight = 15.0f;
+// Full expanded height: header + three data lines + small bottom gap.
+constexpr float kMapInfoExpandedHeight = kMapInfoHeaderHeight + kMapInfoLineHeight * 3.0f + 4.0f;
+
 [[nodiscard]] bool is_nonzero(const stdr_simulation::Twist2D& twist)
 {
   return (twist.linear_x != 0.0 || twist.linear_y != 0.0 || twist.angular_z != 0.0);
@@ -150,6 +160,20 @@ void MapPanel::handle_input(SimulatorBackend& backend)
   }
 
   const ImVec2 mouse_pos = ImGui::GetMousePos();
+
+  // Clicks on the map-info overlay are UI chrome — they must not leak into
+  // robot selection or context-menu teleport capture.
+  const std::optional<std::pair<ImVec2, ImVec2>> overlay_rect = map_info_overlay_rect();
+  if (overlay_rect.has_value())
+  {
+    const ImVec2& tl = overlay_rect->first;
+    const ImVec2& br = overlay_rect->second;
+    if (mouse_pos.x >= tl.x && mouse_pos.x <= br.x && mouse_pos.y >= tl.y && mouse_pos.y <= br.y)
+    {
+      return;
+    }
+  }
+
   // Subtract content_origin_ (not window pos) so the zoom pivot is in transform-space
   // coordinates, which are relative to the drawable content area below the title bar.
   const float mx = mouse_pos.x - content_origin_.x;
@@ -191,6 +215,21 @@ void MapPanel::handle_input(SimulatorBackend& backend)
     context_click_x_ = mouse_pos.x;
     context_click_y_ = mouse_pos.y;
   }
+}
+
+std::optional<std::pair<ImVec2, ImVec2>> MapPanel::map_info_overlay_rect() const
+{
+  // No overlay is drawn when the map is empty.
+  if (cached_map_width_ <= 0 || cached_map_height_ <= 0)
+  {
+    return std::nullopt;
+  }
+
+  const float bottom_y = content_origin_.y + content_size_.y - kMapInfoPadding;
+  const float overlay_height = map_info_collapsed_ ? kMapInfoHeaderHeight : kMapInfoExpandedHeight;
+  const ImVec2 top_left{ content_origin_.x + kMapInfoPadding, bottom_y - overlay_height };
+  const ImVec2 bottom_right{ top_left.x + kMapInfoWidth, top_left.y + overlay_height };
+  return std::make_pair(top_left, bottom_right);
 }
 
 void MapPanel::render_map_image()
@@ -501,51 +540,65 @@ void MapPanel::render_environment_sources(const SimulationSnapshot& snapshot)
 
 void MapPanel::render_map_info_overlay(const SimulationSnapshot& snapshot)
 {
-  const stdr_simulation::OccupancyGrid& grid = snapshot.map;
-  if (grid.width <= 0 || grid.height <= 0)
+  const std::optional<std::pair<ImVec2, ImVec2>> rect = map_info_overlay_rect();
+  if (!rect.has_value())
   {
     return;
   }
 
-  // Semi-transparent overlay in the bottom-left corner of the content region.
-  constexpr float kPadding = 8.0f;
-  constexpr float kOverlayWidth = 220.0f;
-  constexpr float kOverlayHeight = 80.0f;
-
-  const ImVec2 overlay_pos{ content_origin_.x + kPadding,
-                            content_origin_.y + content_size_.y - kOverlayHeight - kPadding };
-  const ImVec2 overlay_end{ overlay_pos.x + kOverlayWidth, overlay_pos.y + kOverlayHeight };
-
-  ImDrawList* draw_list = ImGui::GetWindowDrawList();
-  draw_list->AddRectFilled(overlay_pos, overlay_end, IM_COL32(0, 0, 0, 180), 4.0f);
-
-  const float world_w = static_cast<float>(grid.width) * static_cast<float>(grid.resolution);
-  const float world_h = static_cast<float>(grid.height) * static_cast<float>(grid.resolution);
-
-  const float text_x = overlay_pos.x + 6.0f;
-  float text_y = overlay_pos.y + 4.0f;
-  constexpr float kLineHeight = 15.0f;
+  const ImVec2& overlay_pos = rect->first;
+  const ImVec2& overlay_end = rect->second;
 
   const ImU32 text_color = IM_COL32(220, 220, 220, 255);
   const ImU32 label_color = IM_COL32(160, 160, 160, 255);
 
-  if (!snapshot.map_name.empty())
+  const ImVec2 header_size{ kMapInfoWidth, kMapInfoHeaderHeight };
+
+  // Register the invisible button before drawing visuals so ImGui's hit-test
+  // region matches the rendered header strip.  The draw list renders on top.
+  ImGui::SetCursorScreenPos(overlay_pos);
+  ImGui::InvisibleButton("##map_info_toggle", header_size);
+  if (ImGui::IsItemClicked())
   {
-    draw_list->AddText(ImVec2(text_x, text_y), label_color, snapshot.map_name.c_str());
-    text_y += kLineHeight;
+    map_info_collapsed_ = !map_info_collapsed_;
   }
+
+  ImDrawList* draw_list = ImGui::GetWindowDrawList();
+  draw_list->AddRectFilled(overlay_pos, overlay_end, IM_COL32(0, 0, 0, 180), 4.0f);
+
+  // Show a collapse/expand caret using ASCII so no Unicode font support is required.
+  const char* const caret = map_info_collapsed_ ? "[+]" : "[-]";
+  const std::string header_label = snapshot.map_name.empty() ? "Map info" : snapshot.map_name;
+  const std::string header_text = std::format("{} {}", caret, header_label);
+
+  const float text_x = overlay_pos.x + 6.0f;
+  // Centre the header text vertically within the header strip.
+  const float header_text_y = overlay_pos.y + (kMapInfoHeaderHeight - ImGui::GetTextLineHeight()) * 0.5f;
+  draw_list->AddText(ImVec2(text_x, header_text_y), label_color, header_text.c_str());
+
+  if (map_info_collapsed_)
+  {
+    return;
+  }
+
+  const stdr_simulation::OccupancyGrid& grid = snapshot.map;
+  const float world_w = static_cast<float>(grid.width) * static_cast<float>(grid.resolution);
+  const float world_h = static_cast<float>(grid.height) * static_cast<float>(grid.resolution);
+
+  // Data lines begin immediately below the header strip.
+  float text_y = overlay_pos.y + kMapInfoHeaderHeight + 2.0f;
 
   // Resolution line.
   const std::string res_text = std::format("Resolution: {:.4f} m/px", grid.resolution);
   draw_list->AddText(ImVec2(text_x, text_y), text_color, res_text.c_str());
-  text_y += kLineHeight;
+  text_y += kMapInfoLineHeight;
 
   // Dimensions in pixels.
   const std::string dim_text = std::format("Size: {}x{} px", grid.width, grid.height);
   draw_list->AddText(ImVec2(text_x, text_y), text_color, dim_text.c_str());
-  text_y += kLineHeight;
+  text_y += kMapInfoLineHeight;
 
-  // Dimensions in meters.
+  // Dimensions in metres.
   const std::string world_text = std::format("World: {:.2f}x{:.2f} m", world_w, world_h);
   draw_list->AddText(ImVec2(text_x, text_y), text_color, world_text.c_str());
 }

@@ -6,9 +6,11 @@
 #include <imgui.h>
 
 #include <cstdint>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <unordered_set>
+#include <utility>
 #include <vector>
 
 typedef unsigned int GLuint;
@@ -56,6 +58,11 @@ private:
   void render_context_menu(SimulatorBackend& backend, const SimulationSnapshot& snapshot);
   void render_velocity_overlay(const SimulationSnapshot& snapshot);
 
+  /** @brief Returns the screen-space rect occupied by the map-info overlay in its
+   *  current state (collapsed vs expanded). Returns std::nullopt when there is
+   *  no overlay to draw (e.g., empty map). */
+  [[nodiscard]] std::optional<std::pair<ImVec2, ImVec2>> map_info_overlay_rect() const;
+
   MapTransform transform_;
   // Top-left and size of the content region (below the title bar), captured at
   // the start of each render() call.  All draw-list calls that anchor
@@ -76,6 +83,8 @@ private:
   bool show_grid_{ false };
   bool locked_view_{ true };
   bool dragging_robot_{ false };
+  // Starts collapsed so the overlay does not obscure the map corner on first launch.
+  bool map_info_collapsed_{ true };
 
   // Screen position where the context menu was opened, captured on right-click
   // so "Teleport here" targets the click location rather than the menu item position.
