@@ -60,3 +60,5 @@
 # - linear.api-key
 # - github.org
 # - github.repo
+
+sync.main: "jazzy-devel"
