@@ -475,6 +475,12 @@ void MapPanel::render_sensor_overlays(const SimulationSnapshot& snapshot,
       const ImVec2 sensor_screen{ content_origin_.x + sensor_sp.x, content_origin_.y + sensor_sp.y };
 
       const double range = scan.range;
+      // Open or too-close readings carry ±infinity per REP 117 and have no
+      // finite cone to draw.
+      if (!std::isfinite(range))
+      {
+        continue;
+      }
       const double half_cone = cfg.cone_angle * 0.5;
 
       const double left_angle = sensor_world.theta + half_cone;
