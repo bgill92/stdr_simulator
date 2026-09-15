@@ -83,9 +83,13 @@ install(TARGETS robot_spawner RUNTIME DESTINATION lib/${PROJECT_NAME})
 if(BUILD_TESTING)
   find_package(ament_cmake_gtest REQUIRED)
   find_package(GTest REQUIRED)
+  # tf2::getYaw (used only in test_robot_node.cpp) needs the geometry_msgs
+  # Quaternion <-> tf2::Quaternion conversion that tf2_geometry_msgs provides.
+  find_package(tf2_geometry_msgs REQUIRED)
 
   ament_add_gtest(test_robot_node test/test_robot_node.cpp)
-  target_link_libraries(test_robot_node ${PROJECT_NAME} GTest::gmock)
+  target_link_libraries(test_robot_node ${PROJECT_NAME} GTest::gmock
+                        tf2_geometry_msgs::tf2_geometry_msgs)
 endif()
 
 ament_package()

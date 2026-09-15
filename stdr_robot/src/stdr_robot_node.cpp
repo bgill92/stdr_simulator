@@ -21,6 +21,13 @@ namespace stdr_robot
 namespace
 {
 
+// Variance placeholder for pose DOFs the 2D simulator never estimates (z,
+// roll, pitch). A large finite value — rather than 0, which would claim
+// perfect certainty — signals "no information" to consumers of the
+// covariance (e.g. robot_localization), following common ROS practice for
+// unused nav_msgs/Odometry covariance entries.
+constexpr double kUnusedCovarianceVariance = 1e6;
+
 /**
  * @brief Extract the node name from NodeOptions parameter overrides.
  *
@@ -116,6 +123,25 @@ make_float_descriptor(const std::string& description, double from_value, double 
 }
 
 /**
+ * @brief Build a ParameterDescriptor for a bool parameter.
+ *
+ * @param read_only When true, ROS rejects any runtime `set_parameter` call on
+ *                  this parameter instead of silently accepting a value that
+ *                  is never re-read — required for parameters (like
+ *                  publish_map_to_odom_tf) that are only read once at
+ *                  construction and have no reconfiguration callback path.
+ */
+[[nodiscard]] rcl_interfaces::msg::ParameterDescriptor make_bool_descriptor(std::string_view description,
+                                                                            bool read_only = false)
+{
+  rcl_interfaces::msg::ParameterDescriptor desc;
+  desc.description = std::string{ description };
+  desc.type = rcl_interfaces::msg::ParameterType::PARAMETER_BOOL;
+  desc.read_only = read_only;
+  return desc;
+}
+
+/**
  * @brief Simulate sensors and publish results.
  *
  * All sensor config types share the same simulate → convert → publish
@@ -143,7 +169,11 @@ void simulate_and_publish(const std::vector<Config>& configs, const std::vector<
   }
 }
 
-/** Create publishers and broadcast static TF for a set of sensor configs. */
+/** Create publishers and broadcast static TF for a set of sensor configs.
+ *
+ *  Sensors are re-parented under <robot_name>/base_link (the belief tree) rather
+ *  than <robot_name> (the truth frame) — a real robot's sensors are rigidly
+ *  mounted to the chassis it estimates its own pose for, not to ground truth. */
 template <typename MsgT, typename Config>
 void create_sensor_publishers_and_tf(rclcpp::Node& node, const std::vector<Config>& configs,
                                      std::vector<typename rclcpp::Publisher<MsgT>::SharedPtr>& pubs,
@@ -157,7 +187,7 @@ void create_sensor_publishers_and_tf(rclcpp::Node& node, const std::vector<Confi
 
     geometry_msgs::msg::TransformStamped tf_msg;
     tf_msg.header.stamp = stamp;
-    tf_msg.header.frame_id = robot_name;
+    tf_msg.header.frame_id = robot_name + "/base_link";
     tf_msg.child_frame_id = robot_name + "/" + cfg.frame_id;
     tf_msg.transform.translation.x = cfg.pose.x;
     tf_msg.transform.translation.y = cfg.pose.y;
@@ -201,9 +231,23 @@ StdrRobotNode::StdrRobotNode(const rclcpp::NodeOptions& options)
       "scheduling_mode", "snap_to_multiple",
       make_string_descriptor("Rate scheduling strategy: 'snap_to_multiple' or 'accumulator'."));
 
+  // read_only=true: this parameter is read once at construction with no
+  // reconfiguration callback path, so a runtime set_parameter() would
+  // otherwise silently succeed and have no effect. Marking it read-only makes
+  // ROS reject the change instead of accepting a value that is never applied.
+  declare_parameter<bool>(
+      "publish_map_to_odom_tf", true,
+      make_bool_descriptor("Whether this node publishes the map_static -> <robot>/odom correction TF. "
+                           "A SLAM/localization stack that estimates map->odom itself must set this "
+                           "false to avoid two publishers of the same frame. Read-only: set at launch only.",
+                           /*read_only=*/true));
+
   sim_step_dt_ = get_parameter("sim_step_dt").as_double();
   tf_rate_ = get_parameter("tf_rate").as_double();
   odom_rate_ = get_parameter("odom_rate").as_double();
+  // Read once at construction — no dynamic reconfigure support, unlike the
+  // rate parameters above.
+  publish_map_to_odom_tf_ = get_parameter("publish_map_to_odom_tf").as_bool();
 
   {
     const std::string mode_str = get_parameter("scheduling_mode").as_string();
@@ -415,6 +459,7 @@ void StdrRobotNode::configure(const stdr_simulation::RobotConfig& config)
   config_ = config;
   pose_ = config_.initial_pose;
   previous_pose_ = pose_;
+  odom_pose_ = config_.initial_pose;
   setup_publishers_and_tf();
   register_scheduler_streams();
   registered_ = true;
@@ -434,6 +479,7 @@ void StdrRobotNode::on_register_result(const rclcpp_action::ClientGoalHandle<Reg
   config_ = stdr_parser::from_ros_msg(result.result->description);
   pose_ = config_.initial_pose;
   previous_pose_ = pose_;
+  odom_pose_ = config_.initial_pose;
   setup_publishers_and_tf();
   register_scheduler_streams();
   registered_ = true;
@@ -444,8 +490,9 @@ void StdrRobotNode::on_register_result(const rclcpp_action::ClientGoalHandle<Reg
 
 void StdrRobotNode::setup_publishers_and_tf()
 {
-  // Odometry publisher.
+  // Odometry (belief) and ground-truth publishers.
   odom_pub_ = create_publisher<nav_msgs::msg::Odometry>(robot_name_ + "/odom", 10);
+  ground_truth_pub_ = create_publisher<nav_msgs::msg::Odometry>(robot_name_ + "/ground_truth", 10);
 
   const rclcpp::Time stamp = now();
 
@@ -605,6 +652,9 @@ void StdrRobotNode::handle_move_robot(const stdr_msgs::srv::MoveRobot::Request::
 
   pose_ = new_pose;
   previous_pose_ = new_pose;
+  // Teleport collapses the belief pose onto truth — same as SimulationEngine's
+  // teleport handling (see world model set_robot_pose / simulation_engine.cpp).
+  odom_pose_ = new_pose;
   RCLCPP_INFO(get_logger(), "Robot '%s' moved to (%.2f, %.2f, %.2f)", robot_name_.c_str(), new_pose.x, new_pose.y,
               new_pose.theta);
 }
@@ -723,15 +773,21 @@ void StdrRobotNode::simulate_sonar(std::size_t index, const rclcpp::Time& stamp)
 
 void StdrRobotNode::integrate_motion(double dt)
 {
-  // Select motion model based on kinematic type.
+  // new_pose: ground truth, possibly perturbed by Thrun velocity-model noise
+  // (update()). new_odom: the noise-free integration of the same command
+  // (integrate()) — the robot's own belief about where it is. Mirrors
+  // SimulationEngine::step (see simulation_engine.cpp).
   stdr_simulation::Pose2D new_pose;
+  stdr_simulation::Pose2D new_odom;
   if (config_.kinematic_model.type == "omni")
   {
     new_pose = omni_motion_.update(pose_, cmd_vel_, dt, config_.kinematic_model, config_.center_of_rotation);
+    new_odom = omni_motion_.integrate(odom_pose_, cmd_vel_, dt, config_.center_of_rotation);
   }
   else
   {
     new_pose = ideal_motion_.update(pose_, cmd_vel_, dt, config_.kinematic_model, config_.center_of_rotation);
+    new_odom = ideal_motion_.integrate(odom_pose_, cmd_vel_, dt, config_.center_of_rotation);
   }
 
   // Collision check against map.
@@ -750,37 +806,104 @@ void StdrRobotNode::integrate_motion(double dt)
     previous_pose_ = pose_;
     pose_ = new_pose;
   }
+
+  // Odometry always advances to new_odom, collision or not — the wheels keep
+  // turning and the encoders cannot see the wall, so they keep counting as if
+  // the commanded motion succeeded (same as SimulationEngine::step).
+  odom_pose_ = new_odom;
 }
 
 // ─── Publishing ─────────────────────────────────────────────────────────────
 
 void StdrRobotNode::publish_odometry(const rclcpp::Time& stamp)
 {
+  // Belief odometry: what the robot thinks it did, in its own odom frame.
   nav_msgs::msg::Odometry odom;
   odom.header.stamp = stamp;
-  odom.header.frame_id = "map_static";
-  odom.child_frame_id = robot_name_;
-  odom.pose.pose.position.x = pose_.x;
-  odom.pose.pose.position.y = pose_.y;
+  odom.header.frame_id = robot_name_ + "/odom";
+  odom.child_frame_id = robot_name_ + "/base_link";
+  odom.pose.pose.position.x = odom_pose_.x;
+  odom.pose.pose.position.y = odom_pose_.y;
   odom.pose.pose.position.z = 0.0;
-  odom.pose.pose.orientation = yaw_to_quaternion(pose_.theta);
+  odom.pose.pose.orientation = yaw_to_quaternion(odom_pose_.theta);
   odom.twist.twist.linear.x = cmd_vel_.linear_x;
   odom.twist.twist.linear.y = cmd_vel_.linear_y;
   odom.twist.twist.angular.z = cmd_vel_.angular_z;
+
+  // Odometry publish rate defines the covariance accumulation interval.
+  // publish_odometry() only runs from a scheduled Odom stream event, which
+  // implies the stream is already registered and effective_odom_rate() is
+  // positive (even "every tick" reports the physics rate, never 0) — so this
+  // fallback to the physics tick is not reachable today. It stays as a guard
+  // against a future change to the call ordering rather than a live case.
+  const double odom_hz = effective_odom_rate();
+  const double interval = odom_hz > 0.0 ? 1.0 / odom_hz : sim_step_dt_;
+  const stdr_simulation::motion::OdometryVariance variance =
+      stdr_simulation::motion::odometry_variance(cmd_vel_, config_.kinematic_model, interval);
+  odom.pose.covariance[0] = variance.translational;      // x-x
+  odom.pose.covariance[7] = variance.translational;      // y-y
+  odom.pose.covariance[35] = variance.rotational;        // yaw-yaw
+  odom.pose.covariance[14] = kUnusedCovarianceVariance;  // z-z
+  odom.pose.covariance[21] = kUnusedCovarianceVariance;  // roll-roll
+  odom.pose.covariance[28] = kUnusedCovarianceVariance;  // pitch-pitch
   odom_pub_->publish(odom);
+
+  // Ground truth: what actually happened, for evaluation/rendering only —
+  // never fed back into the robot's own estimator.
+  nav_msgs::msg::Odometry ground_truth;
+  ground_truth.header.stamp = stamp;
+  ground_truth.header.frame_id = "map_static";
+  ground_truth.child_frame_id = robot_name_;
+  ground_truth.pose.pose.position.x = pose_.x;
+  ground_truth.pose.pose.position.y = pose_.y;
+  ground_truth.pose.pose.position.z = 0.0;
+  ground_truth.pose.pose.orientation = yaw_to_quaternion(pose_.theta);
+  ground_truth.twist.twist.linear.x = cmd_vel_.linear_x;
+  ground_truth.twist.twist.linear.y = cmd_vel_.linear_y;
+  ground_truth.twist.twist.angular.z = cmd_vel_.angular_z;
+  ground_truth_pub_->publish(ground_truth);
 }
 
 void StdrRobotNode::broadcast_robot_tf(const rclcpp::Time& stamp)
 {
-  geometry_msgs::msg::TransformStamped tf_msg;
-  tf_msg.header.stamp = stamp;
-  tf_msg.header.frame_id = "map_static";
-  tf_msg.child_frame_id = robot_name_;
-  tf_msg.transform.translation.x = pose_.x;
-  tf_msg.transform.translation.y = pose_.y;
-  tf_msg.transform.translation.z = 0.0;
-  tf_msg.transform.rotation = yaw_to_quaternion(pose_.theta);
-  tf_broadcaster_->sendTransform(tf_msg);
+  // Truth TF: map_static -> <robot> — unchanged, used for rendering/evaluation.
+  geometry_msgs::msg::TransformStamped truth_tf;
+  truth_tf.header.stamp = stamp;
+  truth_tf.header.frame_id = "map_static";
+  truth_tf.child_frame_id = robot_name_;
+  truth_tf.transform.translation.x = pose_.x;
+  truth_tf.transform.translation.y = pose_.y;
+  truth_tf.transform.translation.z = 0.0;
+  truth_tf.transform.rotation = yaw_to_quaternion(pose_.theta);
+  tf_broadcaster_->sendTransform(truth_tf);
+
+  // Belief TF: <robot>/odom -> <robot>/base_link — the tree sensors hang from.
+  geometry_msgs::msg::TransformStamped belief_tf;
+  belief_tf.header.stamp = stamp;
+  belief_tf.header.frame_id = robot_name_ + "/odom";
+  belief_tf.child_frame_id = robot_name_ + "/base_link";
+  belief_tf.transform.translation.x = odom_pose_.x;
+  belief_tf.transform.translation.y = odom_pose_.y;
+  belief_tf.transform.translation.z = 0.0;
+  belief_tf.transform.rotation = yaw_to_quaternion(odom_pose_.theta);
+  tf_broadcaster_->sendTransform(belief_tf);
+
+  if (publish_map_to_odom_tf_)
+  {
+    // Correction TF: map_static -> <robot>/odom, chosen so that composing it
+    // with the belief transform above recovers truth exactly:
+    // compose(correction, odom_pose_) == pose_.
+    const stdr_simulation::Pose2D correction = stdr_simulation::compose(pose_, stdr_simulation::inverse(odom_pose_));
+    geometry_msgs::msg::TransformStamped correction_tf;
+    correction_tf.header.stamp = stamp;
+    correction_tf.header.frame_id = "map_static";
+    correction_tf.child_frame_id = robot_name_ + "/odom";
+    correction_tf.transform.translation.x = correction.x;
+    correction_tf.transform.translation.y = correction.y;
+    correction_tf.transform.translation.z = 0.0;
+    correction_tf.transform.rotation = yaw_to_quaternion(correction.theta);
+    tf_broadcaster_->sendTransform(correction_tf);
+  }
 }
 
 }  // namespace stdr_robot

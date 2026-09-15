@@ -439,5 +439,69 @@ TEST(ApplyNoiseTest, LinearNoiseVarianceScalesInverselyWithDt)
   }
 }
 
+// ---- odometry_variance: interval validation ----------------------------------
+
+TEST(OdometryVarianceTest, ZeroIntervalThrows)
+{
+  const Twist2D cmd{ 1.0, 0.0, 0.0 };
+  EXPECT_THROW(std::ignore = odometry_variance(cmd, velocity_noise_config(), 0.0), std::invalid_argument);
+}
+
+TEST(OdometryVarianceTest, NegativeIntervalThrows)
+{
+  const Twist2D cmd{ 1.0, 0.0, 0.0 };
+  EXPECT_THROW(std::ignore = odometry_variance(cmd, velocity_noise_config(), -0.1), std::invalid_argument);
+}
+
+// ---- odometry_variance: OdometryModel::Perfect -------------------------------
+
+TEST(OdometryVarianceTest, PerfectReturnsZeroVariance)
+{
+  const Twist2D cmd{ 1.0, 0.5, 0.2 };
+  KinematicConfig cfg = velocity_noise_config();
+  cfg.odometry_model = OdometryModel::Perfect;  // Alphas present but must be ignored.
+  const OdometryVariance result = odometry_variance(cmd, cfg, kDt);
+  EXPECT_THAT(result.translational, DoubleNear(0.0, kTol));
+  EXPECT_THAT(result.rotational, DoubleNear(0.0, kTol));
+}
+
+// ---- odometry_variance: OdometryModel::Velocity -------------------------------
+
+// translational = (a_ux_ux*ux^2 + a_ux_uy*uy^2 + a_ux_w*w^2) * interval.
+TEST(OdometryVarianceTest, TranslationalMatchesClosedForm)
+{
+  KinematicConfig cfg;
+  cfg.odometry_model = OdometryModel::Velocity;
+  cfg.a_ux_ux = 0.02;
+  cfg.a_ux_uy = 0.01;
+  cfg.a_ux_w = 0.005;
+  const Twist2D cmd{ 2.0, 1.0, 0.5 };
+  constexpr double kInterval = 0.5;
+
+  const OdometryVariance result = odometry_variance(cmd, cfg, kInterval);
+  const double expected = (0.02 * 2.0 * 2.0 + 0.01 * 1.0 * 1.0 + 0.005 * 0.5 * 0.5) * kInterval;
+  EXPECT_THAT(result.translational, DoubleNear(expected, kTol));
+}
+
+// rotational = (a_w_ux*ux^2 + a_w_uy*uy^2 + a_w_w*w^2 + a_g_ux*ux^2 + a_g_uy*uy^2 +
+// a_g_w*w^2) * interval — the angular-velocity noise and the drift term add
+// independently.
+TEST(OdometryVarianceTest, RotationalCombinesAngularAndDriftTerms)
+{
+  KinematicConfig cfg;
+  cfg.odometry_model = OdometryModel::Velocity;
+  cfg.a_w_ux = 0.01;
+  cfg.a_w_w = 0.02;
+  cfg.a_g_ux = 0.005;
+  cfg.a_g_w = 0.015;
+  const Twist2D cmd{ 1.0, 0.0, 2.0 };
+  constexpr double kInterval = 0.2;
+
+  const OdometryVariance result = odometry_variance(cmd, cfg, kInterval);
+  const double expected_angular = (0.01 * 1.0 * 1.0 + 0.02 * 2.0 * 2.0) * kInterval;
+  const double expected_drift = (0.005 * 1.0 * 1.0 + 0.015 * 2.0 * 2.0) * kInterval;
+  EXPECT_THAT(result.rotational, DoubleNear(expected_angular + expected_drift, kTol));
+}
+
 }  // namespace
 }  // namespace stdr_simulation::motion

@@ -5,6 +5,7 @@
 #include <stdr_simulation/collision/collision_checker.hpp>
 #include <stdr_simulation/geometry_utils.hpp>
 #include <stdr_simulation/motion/ideal_motion_model.hpp>
+#include <stdr_simulation/motion/noise_model.hpp>
 #include <stdr_simulation/motion/omni_motion_model.hpp>
 #include <stdr_simulation/rate_scheduler.hpp>
 #include <stdr_simulation/sensors/co2_simulator.hpp>
@@ -117,6 +118,11 @@ private:
   void publish_odometry(const rclcpp::Time& stamp);
   void broadcast_robot_tf(const rclcpp::Time& stamp);
 
+  // --- Read-once construction parameter: whether to publish the map_static -> <r>/odom
+  // correction TF. A SLAM/localization stack that estimates map->odom itself must set
+  // this false to avoid two publishers of the same frame.
+  bool publish_map_to_odom_tf_{ true };
+
   // --- Rate parameters: read in the constructor and kept in sync by the param callback ---
   double sim_step_dt_{ stdr_simulation::kDefaultStepDt };
   double tf_rate_{ stdr_simulation::kDefaultTfRateHz };
@@ -142,6 +148,10 @@ private:
   std::string robot_name_;
   stdr_simulation::Pose2D pose_{};
   stdr_simulation::Pose2D previous_pose_{};
+  // Belief (odometry) pose: the noise-free integration of cmd_vel_, kept
+  // alongside the (possibly noisy) true pose_ — mirrors SimulationEngine's
+  // odom_pose (see simulation_engine.cpp step()).
+  stdr_simulation::Pose2D odom_pose_{};
   stdr_simulation::Twist2D cmd_vel_{};
   stdr_simulation::RobotConfig config_;
   std::optional<stdr_simulation::OccupancyGrid> map_;
@@ -171,6 +181,7 @@ private:
 
   // --- Publishers ---
   rclcpp::Publisher<nav_msgs::msg::Odometry>::SharedPtr odom_pub_;
+  rclcpp::Publisher<nav_msgs::msg::Odometry>::SharedPtr ground_truth_pub_;
   std::vector<rclcpp::Publisher<sensor_msgs::msg::LaserScan>::SharedPtr> laser_pubs_;
   std::vector<rclcpp::Publisher<sensor_msgs::msg::Range>::SharedPtr> sonar_pubs_;
   std::vector<rclcpp::Publisher<stdr_msgs::msg::RfidSensorMeasurementMsg>::SharedPtr> rfid_pubs_;

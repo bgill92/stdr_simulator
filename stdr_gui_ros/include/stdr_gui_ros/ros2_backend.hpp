@@ -120,7 +120,7 @@ private:
   // Subscription callbacks — all called on the executor thread.
   void on_map(const nav_msgs::msg::OccupancyGrid::SharedPtr msg);
   void on_active_robots(const stdr_msgs::msg::RobotIndexedVectorMsg::SharedPtr msg);
-  void on_odom(const std::string& robot_name, const nav_msgs::msg::Odometry::SharedPtr msg);
+  void on_ground_truth(const std::string& robot_name, const nav_msgs::msg::Odometry::SharedPtr msg);
   void on_laser(const std::string& robot_name, const std::string& frame_id,
                 const sensor_msgs::msg::LaserScan::SharedPtr msg);
   void on_sonar(const std::string& robot_name, const std::string& frame_id,
@@ -152,15 +152,15 @@ private:
   // robot_states_ vector on every tick.
   std::vector<stdr_simulation::world::RobotState> robot_states_;
 
-  // Most-recently received odom pose per robot, keyed by robot name.
+  // Most-recently received ground-truth pose per robot, keyed by robot name.
   std::unordered_map<std::string, stdr_simulation::Pose2D> latest_pose_;
 
   // Most-recently commanded velocity per robot, keyed by robot name.
   // Updated by set_cmd_vel(); cleaned up when a robot disappears in on_active_robots().
   std::unordered_map<std::string, stdr_simulation::Twist2D> latest_cmd_vel_;
 
-  // Per-robot odom subscriptions, created/destroyed as robots appear/vanish.
-  std::unordered_map<std::string, rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr> odom_subs_;
+  // Per-robot ground-truth subscriptions, created/destroyed as robots appear/vanish.
+  std::unordered_map<std::string, rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr> ground_truth_subs_;
 
   // Per-(robot, sensor) laser subscriptions, keyed as "robot_name/frame_id".
   // Created when a new robot appears in on_active_robots(); destroyed when the
@@ -221,7 +221,7 @@ private:
   //     state; no mutex is needed.
   //   Phase 2 (sensor_ring_mutex_ only): erase latest_laser_, laser_rings_,
   //     latest_sonar_, and sonar_rings_ entries for robots that disappeared.
-  //   Phase 3 (snapshot_mutex_ only): update robot_states_, odom_subs_,
+  //   Phase 3 (snapshot_mutex_ only): update robot_states_, ground_truth_subs_,
   //     param_clients_, param_event_subs_, seed_timers_, and other snapshot
   //     state for the new robot set.  add_parameter_callback calls also happen here.
   //   Phase 4 (no lock): create new laser and sonar subscriptions on the

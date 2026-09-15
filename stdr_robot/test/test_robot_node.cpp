@@ -4,11 +4,16 @@
 #include <stdr_robot/stdr_robot_node.hpp>
 #include <stdr_simulation/rate_scheduler.hpp>
 
+#include <tf2/utils.h>
+#include <tf2_ros/buffer.h>
+#include <tf2_ros/transform_listener.h>
 #include <rcl_interfaces/msg/set_parameters_result.hpp>
 #include <rclcpp/rclcpp.hpp>
+#include <tf2_geometry_msgs/tf2_geometry_msgs.hpp>
 
 #include <chrono>
 #include <cmath>
+#include <future>
 #include <map>
 #include <memory>
 #include <string>
@@ -196,6 +201,8 @@ TEST_F(RobotNodeTest, ConfigureCreatesPublishers)
 
   EXPECT_THAT(topics,
               Contains(std::pair{ std::string("/robot0/odom"), std::vector<std::string>{ "nav_msgs/msg/Odometry" } }));
+  EXPECT_THAT(topics, Contains(std::pair{ std::string("/robot0/ground_truth"),
+                                          std::vector<std::string>{ "nav_msgs/msg/Odometry" } }));
   EXPECT_THAT(topics, Contains(std::pair{ std::string("/robot0/laser0"),
                                           std::vector<std::string>{ "sensor_msgs/msg/LaserScan" } }));
 }
@@ -227,8 +234,8 @@ TEST_F(RobotNodeTest, MotionIntegrationProducesOdometry)
   // The robot should be at its initial pose (no cmd_vel sent).
   EXPECT_NEAR(last_odom.pose.pose.position.x, 1.0, 0.5);
   EXPECT_NEAR(last_odom.pose.pose.position.y, 2.0, 0.5);
-  EXPECT_EQ(last_odom.header.frame_id, "map_static");
-  EXPECT_EQ(last_odom.child_frame_id, "robot0");
+  EXPECT_EQ(last_odom.header.frame_id, "robot0/odom");
+  EXPECT_EQ(last_odom.child_frame_id, "robot0/base_link");
 }
 
 // ─── Laser publishes data with map ──────────────────────────────────────────
@@ -475,6 +482,247 @@ TEST_F(RobotNodeTest, OffsetCenterOfRotationPivotsPoseAboutConfiguredPoint)
   // pivot radius — the arc radius is preserved regardless of heading.
   const double dist_to_pivot = std::hypot(body_x - kPivotWorldX, body_y - kPivotWorldY);
   EXPECT_NEAR(dist_to_pivot, kPivotRadius, 1e-3);
+}
+
+// ─── Ground truth topic ──────────────────────────────────────────────────────
+
+TEST_F(RobotNodeTest, GroundTruthPublishedInMapStaticFrame)
+{
+  node_->configure(make_test_config());
+
+  rclcpp::executors::SingleThreadedExecutor executor;
+  executor.add_node(node_);
+
+  nav_msgs::msg::Odometry last_ground_truth;
+  bool received = false;
+  auto helper_node = rclcpp::Node::make_shared("test_helper_ground_truth");
+  executor.add_node(helper_node);
+  auto ground_truth_sub = helper_node->create_subscription<nav_msgs::msg::Odometry>(
+      "/robot0/ground_truth", 10, [&last_ground_truth, &received](const nav_msgs::msg::Odometry::SharedPtr msg) {
+        last_ground_truth = *msg;
+        received = true;
+      });
+
+  const bool ok = spin_until(
+      executor, [&received]() { return received; }, 2000ms);
+  ASSERT_TRUE(ok) << "Timed out waiting for ground truth";
+
+  EXPECT_EQ(last_ground_truth.header.frame_id, "map_static");
+  EXPECT_EQ(last_ground_truth.child_frame_id, "robot0");
+  EXPECT_NEAR(last_ground_truth.pose.pose.position.x, 1.0, 0.5);
+  EXPECT_NEAR(last_ground_truth.pose.pose.position.y, 2.0, 0.5);
+}
+
+// ─── Odometry model semantics: odom vs. ground truth ────────────────────────
+
+// Under the default OdometryModel::Perfect, odom_pose_ integrates the exact
+// same command as the true pose with no noise drawn — the two must match
+// exactly at every tick (mirrors IdealMotionModelIntegrateTest.PerfectMatchesUpdateExactly).
+TEST_F(RobotNodeTest, PerfectOdometryMatchesGroundTruth)
+{
+  node_->configure(make_test_config());  // odometry_model defaults to Perfect.
+
+  rclcpp::executors::SingleThreadedExecutor executor;
+  executor.add_node(node_);
+  auto helper_node = rclcpp::Node::make_shared("test_helper_perfect_odom");
+  executor.add_node(helper_node);
+
+  auto cmd_pub = helper_node->create_publisher<geometry_msgs::msg::Twist>("/robot0/cmd_vel", 10);
+  geometry_msgs::msg::Twist cmd;
+  cmd.linear.x = 0.5;
+  cmd.angular.z = 0.3;
+
+  nav_msgs::msg::Odometry last_odom;
+  nav_msgs::msg::Odometry last_ground_truth;
+  int odom_count = 0;
+  auto odom_sub = helper_node->create_subscription<nav_msgs::msg::Odometry>(
+      "/robot0/odom", 10, [&last_odom, &odom_count](const nav_msgs::msg::Odometry::SharedPtr msg) {
+        last_odom = *msg;
+        ++odom_count;
+      });
+  auto ground_truth_sub = helper_node->create_subscription<nav_msgs::msg::Odometry>(
+      "/robot0/ground_truth", 10,
+      [&last_ground_truth](const nav_msgs::msg::Odometry::SharedPtr msg) { last_ground_truth = *msg; });
+
+  executor.spin_some(50ms);
+  cmd_pub->publish(cmd);
+
+  constexpr int kMinOdomCount = 10;
+  const bool ok = spin_until(
+      executor, [&odom_count]() { return odom_count >= kMinOdomCount; }, 3000ms);
+  ASSERT_TRUE(ok) << "Timed out waiting for odometry";
+
+  EXPECT_NEAR(last_odom.pose.pose.position.x, last_ground_truth.pose.pose.position.x, 1e-9);
+  EXPECT_NEAR(last_odom.pose.pose.position.y, last_ground_truth.pose.pose.position.y, 1e-9);
+  EXPECT_NEAR(tf2::getYaw(last_odom.pose.pose.orientation), tf2::getYaw(last_ground_truth.pose.pose.orientation), 1e-9);
+}
+
+// Under OdometryModel::Velocity with nonzero alphas, odom_pose_ (clean) must
+// separate from the noisy true pose over many ticks, and the odom covariance
+// diagonal must reflect a nonzero accumulated variance.
+TEST_F(RobotNodeTest, VelocityOdometryDivergesFromGroundTruth)
+{
+  stdr_simulation::RobotConfig config = make_test_config();
+  config.kinematic_model.odometry_model = stdr_simulation::OdometryModel::Velocity;
+  config.kinematic_model.a_ux_ux = 0.5;
+  config.kinematic_model.a_w_w = 0.5;
+  node_->configure(config);
+
+  rclcpp::executors::SingleThreadedExecutor executor;
+  executor.add_node(node_);
+  auto helper_node = rclcpp::Node::make_shared("test_helper_velocity_odom");
+  executor.add_node(helper_node);
+
+  auto cmd_pub = helper_node->create_publisher<geometry_msgs::msg::Twist>("/robot0/cmd_vel", 10);
+  geometry_msgs::msg::Twist cmd;
+  cmd.linear.x = 1.0;
+  cmd.angular.z = 0.5;
+
+  nav_msgs::msg::Odometry last_odom;
+  nav_msgs::msg::Odometry last_ground_truth;
+  int ground_truth_count = 0;
+  auto odom_sub = helper_node->create_subscription<nav_msgs::msg::Odometry>(
+      "/robot0/odom", 10, [&last_odom](const nav_msgs::msg::Odometry::SharedPtr msg) { last_odom = *msg; });
+  auto ground_truth_sub = helper_node->create_subscription<nav_msgs::msg::Odometry>(
+      "/robot0/ground_truth", 10,
+      [&last_ground_truth, &ground_truth_count](const nav_msgs::msg::Odometry::SharedPtr msg) {
+        last_ground_truth = *msg;
+        ++ground_truth_count;
+      });
+
+  executor.spin_some(50ms);
+  cmd_pub->publish(cmd);
+
+  constexpr int kMinCount = 50;
+  const bool ok = spin_until(
+      executor, [&ground_truth_count]() { return ground_truth_count >= kMinCount; }, 5000ms);
+  ASSERT_TRUE(ok) << "Timed out waiting for odometry";
+
+  const double dx = last_odom.pose.pose.position.x - last_ground_truth.pose.pose.position.x;
+  const double dy = last_odom.pose.pose.position.y - last_ground_truth.pose.pose.position.y;
+  EXPECT_GT(std::hypot(dx, dy), 1e-3) << "Velocity-mode noise should have separated odom from ground truth";
+
+  EXPECT_GT(last_odom.pose.covariance[0], 0.0);
+  EXPECT_GT(last_odom.pose.covariance[35], 0.0);
+}
+
+// ─── MoveRobot resets odometry ───────────────────────────────────────────────
+
+// Teleporting the robot must collapse the belief pose onto the requested pose,
+// same as SimulationEngine's teleport handling.
+TEST_F(RobotNodeTest, MoveRobotResetsOdometry)
+{
+  node_->configure(make_test_config());
+
+  rclcpp::executors::SingleThreadedExecutor executor;
+  executor.add_node(node_);
+  auto helper_node = rclcpp::Node::make_shared("test_helper_move_robot");
+  executor.add_node(helper_node);
+
+  auto client = helper_node->create_client<stdr_msgs::srv::MoveRobot>("/robot0/replace");
+  ASSERT_TRUE(client->wait_for_service(2s));
+
+  auto request = std::make_shared<stdr_msgs::srv::MoveRobot::Request>();
+  request->new_pose.x = 5.0;
+  request->new_pose.y = 6.0;
+  request->new_pose.theta = 1.0;
+
+  auto future = client->async_send_request(request);
+  const bool service_ok = spin_until(
+      executor, [&future]() { return future.wait_for(0s) == std::future_status::ready; }, 2000ms);
+  ASSERT_TRUE(service_ok) << "MoveRobot service call did not complete in time";
+
+  nav_msgs::msg::Odometry last_odom;
+  bool received = false;
+  auto odom_sub = helper_node->create_subscription<nav_msgs::msg::Odometry>(
+      "/robot0/odom", 10, [&last_odom, &received](const nav_msgs::msg::Odometry::SharedPtr msg) {
+        last_odom = *msg;
+        received = true;
+      });
+
+  const bool odom_ok = spin_until(
+      executor, [&received]() { return received; }, 2000ms);
+  ASSERT_TRUE(odom_ok) << "Timed out waiting for odometry after MoveRobot";
+
+  EXPECT_NEAR(last_odom.pose.pose.position.x, 5.0, 1e-3);
+  EXPECT_NEAR(last_odom.pose.pose.position.y, 6.0, 1e-3);
+}
+
+// ─── Belief and correction TF ────────────────────────────────────────────────
+
+TEST_F(RobotNodeTest, PublishesBeliefAndCorrectionTf)
+{
+  stdr_simulation::RobotConfig config = make_test_config();
+  config.initial_pose = { 1.0, 2.0, 0.3 };
+  node_->configure(config);
+
+  rclcpp::executors::SingleThreadedExecutor executor;
+  executor.add_node(node_);
+  auto helper_node = rclcpp::Node::make_shared("test_helper_tf");
+  executor.add_node(helper_node);
+
+  tf2_ros::Buffer buffer(helper_node->get_clock());
+  tf2_ros::TransformListener listener(buffer, helper_node, /*spin_thread=*/false);
+
+  const bool ok = spin_until(
+      executor,
+      [&buffer]() {
+        return buffer.canTransform("robot0/odom", "robot0/base_link", tf2::TimePointZero) &&
+               buffer.canTransform("map_static", "robot0/odom", tf2::TimePointZero) &&
+               buffer.canTransform("map_static", "robot0", tf2::TimePointZero);
+      },
+      3000ms);
+  ASSERT_TRUE(ok) << "Timed out waiting for belief/correction/truth TF";
+
+  // tf2 composes the map_static -> robot0/odom -> robot0/base_link chain
+  // automatically; the composed result must recover the truth transform.
+  const geometry_msgs::msg::TransformStamped composed =
+      buffer.lookupTransform("map_static", "robot0/base_link", tf2::TimePointZero);
+  const geometry_msgs::msg::TransformStamped truth = buffer.lookupTransform("map_static", "robot0", tf2::TimePointZero);
+
+  EXPECT_NEAR(composed.transform.translation.x, truth.transform.translation.x, 1e-3);
+  EXPECT_NEAR(composed.transform.translation.y, truth.transform.translation.y, 1e-3);
+  EXPECT_NEAR(tf2::getYaw(composed.transform.rotation), tf2::getYaw(truth.transform.rotation), 1e-3);
+}
+
+// ─── publish_map_to_odom_tf parameter ────────────────────────────────────────
+
+TEST(RobotNodeMapToOdomTfTest, MapToOdomTfDisabledByParameter)
+{
+  rclcpp::NodeOptions options;
+  options.append_parameter_override("robot_name", "robot0");
+  options.append_parameter_override("publish_map_to_odom_tf", false);
+  const std::shared_ptr<StdrRobotNode> node = std::make_shared<StdrRobotNode>(options);
+  node->configure(make_test_config());
+
+  rclcpp::executors::SingleThreadedExecutor executor;
+  executor.add_node(node);
+  auto helper_node = rclcpp::Node::make_shared("test_helper_no_map_to_odom");
+  executor.add_node(helper_node);
+
+  tf2_ros::Buffer buffer(helper_node->get_clock());
+  tf2_ros::TransformListener listener(buffer, helper_node, /*spin_thread=*/false);
+
+  // The belief TF must still appear even with the correction TF disabled.
+  const bool belief_ok = spin_until(
+      executor, [&buffer]() { return buffer.canTransform("robot0/odom", "robot0/base_link", tf2::TimePointZero); },
+      3000ms);
+  ASSERT_TRUE(belief_ok) << "Timed out waiting for belief TF";
+
+  // Give the correction TF ample opportunity to appear before asserting its absence.
+  executor.spin_some(500ms);
+  EXPECT_FALSE(buffer.canTransform("map_static", "robot0/odom", tf2::TimePointZero))
+      << "map_static -> robot0/odom must not be published when publish_map_to_odom_tf is false";
+}
+
+// publish_map_to_odom_tf is read once at construction with no reconfiguration
+// callback path — it must be declared read-only so a runtime set_parameter()
+// is rejected instead of silently succeeding with no effect.
+TEST_F(RobotNodeTest, PublishMapToOdomTfParameterIsReadOnly)
+{
+  const rcl_interfaces::msg::SetParametersResult result =
+      node_->set_parameter(rclcpp::Parameter("publish_map_to_odom_tf", false));
+  EXPECT_FALSE(result.successful);
 }
 
 }  // namespace

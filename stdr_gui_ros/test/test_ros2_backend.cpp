@@ -323,9 +323,9 @@ TEST_F(Ros2BackendTest, FootprintReturnsConfiguredPolygon)
   EXPECT_DOUBLE_EQ(pts[2].y, -0.1);
 }
 
-// ─── Introspection — pose from odom ──────────────────────────────────────────
+// ─── Introspection — pose from ground truth ──────────────────────────────────
 
-TEST_F(Ros2BackendTest, PoseReflectsLatestOdom)
+TEST_F(Ros2BackendTest, PoseReflectsLatestGroundTruth)
 {
   rclcpp::executors::SingleThreadedExecutor executor;
   executor.add_node(pub_node_);
@@ -334,27 +334,27 @@ TEST_F(Ros2BackendTest, PoseReflectsLatestOdom)
   stdr_simulation::RobotConfig cfg;
   publish_active_robots({ { "robot0", cfg } }, executor);
 
-  // Publish an odom message to the robot's odom topic.
-  rclcpp::Publisher<nav_msgs::msg::Odometry>::SharedPtr odom_pub =
-      pub_node_->create_publisher<nav_msgs::msg::Odometry>("robot0/odom", 10);
+  // Publish a ground-truth message to the robot's ground_truth topic.
+  rclcpp::Publisher<nav_msgs::msg::Odometry>::SharedPtr ground_truth_pub =
+      pub_node_->create_publisher<nav_msgs::msg::Odometry>("robot0/ground_truth", 10);
 
-  nav_msgs::msg::Odometry odom_msg;
-  odom_msg.pose.pose.position.x = 1.5;
-  odom_msg.pose.pose.position.y = 2.5;
+  nav_msgs::msg::Odometry ground_truth_msg;
+  ground_truth_msg.pose.pose.position.x = 1.5;
+  ground_truth_msg.pose.pose.position.y = 2.5;
   // Build a quaternion for yaw = 0.7 rad.
   tf2::Quaternion q;
   q.setRPY(0.0, 0.0, 0.7);
-  odom_msg.pose.pose.orientation.x = q.x();
-  odom_msg.pose.pose.orientation.y = q.y();
-  odom_msg.pose.pose.orientation.z = q.z();
-  odom_msg.pose.pose.orientation.w = q.w();
-  odom_pub->publish(odom_msg);
+  ground_truth_msg.pose.pose.orientation.x = q.x();
+  ground_truth_msg.pose.pose.orientation.y = q.y();
+  ground_truth_msg.pose.pose.orientation.z = q.z();
+  ground_truth_msg.pose.pose.orientation.w = q.w();
+  ground_truth_pub->publish(ground_truth_msg);
 
   const bool received = spin_until(executor, [&] {
     const std::optional<stdr_simulation::Pose2D> p = backend_.pose("robot0");
     return p.has_value() && std::abs(p->x - 1.5) < 1e-9;
   });
-  ASSERT_TRUE(received) << "Odom message was not delivered in time.";
+  ASSERT_TRUE(received) << "Ground-truth message was not delivered in time.";
 
   const std::optional<stdr_simulation::Pose2D> p = backend_.pose("robot0");
   ASSERT_TRUE(p.has_value());

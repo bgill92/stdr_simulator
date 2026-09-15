@@ -324,8 +324,8 @@ std::shared_ptr<const stdr_gui::SimulationSnapshot> Ros2Backend::get_snapshot() 
     snapshot.thermal_sources = thermal_sources_;
     snapshot.sound_sources = sound_sources_;
 
-    // Build the robot list with the most recent odom-derived poses. Fall back
-    // to config.initial_pose if no odom has been received yet for a robot.
+    // Build the robot list with the most recent ground-truth poses. Fall back
+    // to config.initial_pose if no ground truth has been received yet for a robot.
     snapshot.robots = robot_states_;
     for (stdr_simulation::world::RobotState& state : snapshot.robots)
     {
@@ -656,11 +656,11 @@ void Ros2Backend::on_active_robots(const stdr_msgs::msg::RobotIndexedVectorMsg::
   {
     const std::lock_guard<std::mutex> lock(snapshot_mutex_);
 
-    // Drop odom subscriptions and cached state for robots that disappeared.
+    // Drop ground-truth subscriptions and cached state for robots that disappeared.
     // Iterating the current map and erasing by name is safe here because we hold
     // the lock and no other thread modifies these containers.
     std::vector<std::string> to_remove;
-    for (const auto& [name, unused_sub] : odom_subs_)
+    for (const auto& [name, unused_sub] : ground_truth_subs_)
     {
       if (new_names.find(name) == new_names.end())
       {
@@ -669,7 +669,7 @@ void Ros2Backend::on_active_robots(const stdr_msgs::msg::RobotIndexedVectorMsg::
     }
     for (const std::string& name : to_remove)
     {
-      odom_subs_.erase(name);
+      ground_truth_subs_.erase(name);
       latest_pose_.erase(name);
       latest_cmd_vel_.erase(name);
       cmd_vel_pubs_.erase(name);
@@ -689,8 +689,8 @@ void Ros2Backend::on_active_robots(const stdr_msgs::msg::RobotIndexedVectorMsg::
       }
     }
 
-    // Build the new robot_states_ vector and create odom subs for new robots.
-    // We do NOT reset existing odom subs when a robot is still present: dropping
+    // Build the new robot_states_ vector and create ground-truth subs for new robots.
+    // We do NOT reset existing ground-truth subs when a robot is still present: dropping
     // and recreating a subscription would lose any in-flight messages and cause a
     // brief pose gap visible to the GUI.
     std::vector<stdr_simulation::world::RobotState> new_states;
@@ -717,16 +717,17 @@ void Ros2Backend::on_active_robots(const stdr_msgs::msg::RobotIndexedVectorMsg::
       }
       // New robots default-construct cmd_vel (zero).
 
-      if (odom_subs_.find(entry.name) == odom_subs_.end())
+      if (ground_truth_subs_.find(entry.name) == ground_truth_subs_.end())
       {
-        // New robot — create its odom subscription and seed the pose cache.
+        // New robot — create its ground-truth subscription and seed the pose cache.
         const std::string robot_name = entry.name;
         rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr sub =
             node_->create_subscription<nav_msgs::msg::Odometry>(
-                robot_name + "/odom", 10, [this, robot_name](const nav_msgs::msg::Odometry::SharedPtr odom_msg) {
-                  on_odom(robot_name, odom_msg);
+                robot_name + "/ground_truth", 10,
+                [this, robot_name](const nav_msgs::msg::Odometry::SharedPtr ground_truth_msg) {
+                  on_ground_truth(robot_name, ground_truth_msg);
                 });
-        odom_subs_[robot_name] = sub;
+        ground_truth_subs_[robot_name] = sub;
         latest_pose_[robot_name] = state.config.initial_pose;
 
         // Create an AsyncParametersClient targeting this robot's own node.
@@ -991,7 +992,7 @@ void Ros2Backend::on_active_robots(const stdr_msgs::msg::RobotIndexedVectorMsg::
   }
 }
 
-void Ros2Backend::on_odom(const std::string& robot_name, const nav_msgs::msg::Odometry::SharedPtr msg)
+void Ros2Backend::on_ground_truth(const std::string& robot_name, const nav_msgs::msg::Odometry::SharedPtr msg)
 {
   stdr_simulation::Pose2D pose;
   pose.x = msg->pose.pose.position.x;
