@@ -20,6 +20,7 @@ namespace
 
 using ::testing::DoubleNear;
 using ::testing::Each;
+using ::testing::Eq;
 using ::testing::FloatNear;
 using ::testing::Gt;
 using ::testing::IsEmpty;
@@ -84,7 +85,7 @@ TEST(LaserSimulatorTest, RayCountMatchesConfig)
   ASSERT_THAT(scan.ranges, SizeIs(9));
 }
 
-TEST(LaserSimulatorTest, EmptyMapAllMaxRange)
+TEST(LaserSimulatorTest, EmptyMapAllInfinite)
 {
   const LaserSimulator sim;
   const OccupancyGrid map = make_free_grid();
@@ -99,8 +100,49 @@ TEST(LaserSimulatorTest, EmptyMapAllMaxRange)
   const Pose2D pose{ 0.5, 0.5, 0.0 };
   const LaserScan scan = sim.simulate(pose, cfg, map);
   ASSERT_THAT(scan.ranges, SizeIs(5));
-  // With no obstacles every ray should return max_range.
-  EXPECT_THAT(scan.ranges, Each(static_cast<float>(cfg.max_range)));
+  // With no obstacles, every ray is a no-return beam: REP 117 defines that as
+  // +infinity, not the configured max_range value.
+  EXPECT_THAT(scan.ranges, Each(Eq(std::numeric_limits<float>::infinity())));
+}
+
+TEST(LaserSimulatorTest, RayExitingMapIsPositiveInfinity)
+{
+  const LaserSimulator sim;
+  const OccupancyGrid map = make_free_grid();
+
+  LaserConfig cfg;
+  // Single ray pointing outward (+x direction) from near the right edge of the
+  // 1 m × 1 m free grid; max_range is far larger than the ~0.05 m to the edge.
+  cfg.min_angle = 0.0;
+  cfg.max_angle = 0.0;
+  cfg.min_range = 0.05;
+  cfg.max_range = 5.0;
+  cfg.num_rays = 1;
+
+  const Pose2D pose{ 0.95, 0.5, 0.0 };
+  const LaserScan scan = sim.simulate(pose, cfg, map);
+  ASSERT_THAT(scan.ranges, SizeIs(1));
+  EXPECT_EQ(scan.ranges[0], std::numeric_limits<float>::infinity());
+}
+
+TEST(LaserSimulatorTest, TooCloseObstacleIsNegativeInfinity)
+{
+  const LaserSimulator sim;
+  const OccupancyGrid map = make_walled_grid();
+
+  LaserConfig cfg;
+  // Single ray pointing forward (+x direction) hits the right wall (column 9)
+  // at ~0.4 m, which is inside min_range.
+  cfg.min_angle = 0.0;
+  cfg.max_angle = 0.0;
+  cfg.min_range = 0.5;
+  cfg.max_range = 5.0;
+  cfg.num_rays = 1;
+
+  const Pose2D pose{ 0.5, 0.5, 0.0 };
+  const LaserScan scan = sim.simulate(pose, cfg, map);
+  ASSERT_THAT(scan.ranges, SizeIs(1));
+  EXPECT_EQ(scan.ranges[0], -std::numeric_limits<float>::infinity());
 }
 
 TEST(LaserSimulatorTest, WallInFront)
@@ -149,6 +191,29 @@ TEST(LaserSimulatorTest, NoiseIsZeroMeanNotBiased)
   ASSERT_THAT(scan.ranges, SizeIs(1));
   // 0.01 m window is ~10 sigma — flake-free but tight enough to catch bias ≥ 0.01 m.
   EXPECT_THAT(scan.ranges[0], FloatNear(0.4f, 0.01f));
+}
+
+TEST(LaserSimulatorTest, NoiseDoesNotAffectNoHitBeam)
+{
+  // Mirrors SonarSimulatorTest.NoHitNoiseOnReturnsInfinity: a no-hit beam must
+  // report exactly +infinity even with large noise enabled, because noise is
+  // never applied when there is no physical return.
+  const LaserSimulator sim;
+  const OccupancyGrid map = make_free_grid();
+
+  LaserConfig cfg;
+  cfg.min_angle = -std::numbers::pi / 4.0;
+  cfg.max_angle = std::numbers::pi / 4.0;
+  cfg.min_range = 0.05;
+  cfg.max_range = 5.0;
+  cfg.num_rays = 5;
+  cfg.noise.enabled = true;
+  cfg.noise.std_dev = 1.0;
+
+  const Pose2D pose{ 0.5, 0.5, 0.0 };
+  const LaserScan scan = sim.simulate(pose, cfg, map);
+  ASSERT_THAT(scan.ranges, SizeIs(5));
+  EXPECT_THAT(scan.ranges, Each(Eq(std::numeric_limits<float>::infinity())));
 }
 
 // ---- SonarSimulatorTest -----------------------------------------------------
