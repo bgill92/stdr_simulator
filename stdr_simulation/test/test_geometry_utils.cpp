@@ -130,5 +130,35 @@ TEST(PivotToBodyPoseTest, RoundTripRecoverOriginalPose)
   EXPECT_THAT(recovered.theta, DoubleNear(body.theta, kTol));
 }
 
+// ---------------------------------------------------------------------------
+// compose / inverse tests
+// ---------------------------------------------------------------------------
+
+// compose(a, inverse(a)) must equal the identity pose {0, 0, 0} — inverse()
+// undoes the transform composed onto it.
+TEST(ComposeInverseTest, ComposeWithInverseIsIdentity)
+{
+  const Pose2D a{ 3.0, -1.5, 0.8 };
+  const Pose2D result = compose(a, inverse(a));
+  EXPECT_THAT(result.x, DoubleNear(0.0, kTol));
+  EXPECT_THAT(result.y, DoubleNear(0.0, kTol));
+  EXPECT_THAT(result.theta, DoubleNear(0.0, kTol));
+}
+
+// A correction transform (truth composed with the inverse of a belief pose)
+// composed back onto that same belief pose must recover the original truth —
+// this is exactly the map_static -> odom -> base_link chain the robot node
+// publishes.
+TEST(ComposeInverseTest, CorrectionTransformComposedOntoBeliefRecoversTruth)
+{
+  const Pose2D truth{ 2.0, 1.0, 0.3 };
+  const Pose2D belief{ 1.8, 0.9, 0.25 };
+  const Pose2D correction = compose(truth, inverse(belief));
+  const Pose2D recovered = compose(correction, belief);
+  EXPECT_THAT(recovered.x, DoubleNear(truth.x, kTol));
+  EXPECT_THAT(recovered.y, DoubleNear(truth.y, kTol));
+  EXPECT_THAT(recovered.theta, DoubleNear(truth.theta, kTol));
+}
+
 }  // namespace
 }  // namespace stdr_simulation

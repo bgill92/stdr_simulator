@@ -46,6 +46,29 @@ Pose2D pivot_to_body_pose(const Pose2D& pivot_pose, const Point2D& pivot)
   return result;
 }
 
+Pose2D compose(const Pose2D& a, const Pose2D& b)
+{
+  const double cos_theta = std::cos(a.theta);
+  const double sin_theta = std::sin(a.theta);
+  Pose2D result;
+  result.x = a.x + b.x * cos_theta - b.y * sin_theta;
+  result.y = a.y + b.x * sin_theta + b.y * cos_theta;
+  result.theta = a.theta + b.theta;
+  return result;
+}
+
+Pose2D inverse(const Pose2D& a)
+{
+  const double cos_theta = std::cos(a.theta);
+  const double sin_theta = std::sin(a.theta);
+  Pose2D result;
+  // Inverse of an SE(2) transform [R|t] is [R^T | -R^T*t]; R^T is rotation by -theta.
+  result.x = -(a.x * cos_theta + a.y * sin_theta);
+  result.y = -(-a.x * sin_theta + a.y * cos_theta);
+  result.theta = -a.theta;
+  return result;
+}
+
 bool point_in_footprint(const Point2D& p, const Footprint& fp)
 {
   if (fp.points.empty())

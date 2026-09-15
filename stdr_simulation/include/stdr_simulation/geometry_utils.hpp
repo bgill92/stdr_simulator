@@ -52,6 +52,31 @@ namespace stdr_simulation
 [[nodiscard]] Pose2D pivot_to_body_pose(const Pose2D& pivot_pose, const Point2D& pivot);
 
 /**
+ * @brief Compose two 2D poses, treating @p b as expressed in @p a's frame.
+ *
+ * Rotates and translates @p b by @p a, exactly like compute_sensor_world_pose
+ * (which is a special case of this composition). Used to combine a chain of
+ * relative transforms — e.g. a TF correction transform composed with a belief
+ * pose to recover the true world pose.
+ *
+ * @param a Pose of frame B's origin, expressed in the world (or outer) frame.
+ * @param b Pose expressed in frame B.
+ * @return  Pose of @p b, expressed in the same frame as @p a.
+ */
+[[nodiscard]] Pose2D compose(const Pose2D& a, const Pose2D& b);
+
+/**
+ * @brief Invert a 2D pose, i.e. compute the transform that undoes it.
+ *
+ * For any pose @p a, `compose(a, inverse(a))` and `compose(inverse(a), a)`
+ * both equal the identity pose {0, 0, 0} (up to floating-point error).
+ *
+ * @param a Pose to invert.
+ * @return  The inverse transform.
+ */
+[[nodiscard]] Pose2D inverse(const Pose2D& a);
+
+/**
  * @brief Test whether a point lies inside (or on the boundary of) a footprint.
  *
  * Both @p p and @p fp are expressed in the same frame (typically robot body

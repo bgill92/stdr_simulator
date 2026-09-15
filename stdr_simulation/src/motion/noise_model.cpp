@@ -57,4 +57,35 @@ NoiseResult apply_noise(const Twist2D& cmd, const KinematicConfig& params, const
   return NoiseResult{ noisy, drift };
 }
 
+OdometryVariance odometry_variance(const Twist2D& cmd, const KinematicConfig& params, const double interval)
+{
+  // Mirrors apply_noise's dt guard: the closed-form sum below is only valid
+  // for a positive accumulation interval.
+  if (interval <= 0.0)
+  {
+    throw std::invalid_argument("odometry_variance: interval must be positive");
+  }
+
+  // Perfect odometry: apply_noise never perturbs the command, so the
+  // accumulated error variance is exactly zero.
+  if (params.odometry_model == OdometryModel::Perfect)
+  {
+    return OdometryVariance{ 0.0, 0.0 };
+  }
+
+  const double ux = cmd.linear_x;
+  const double uy = cmd.linear_y;
+  const double w = cmd.angular_z;
+
+  const double translational = (params.a_ux_ux * ux * ux + params.a_ux_uy * uy * uy + params.a_ux_w * w * w) * interval;
+
+  // Rotational error accumulates from two independent perturbations — the
+  // angular-velocity noise (a_w_*) and the extra heading drift term (a_g_*)
+  // — whose variances add because they are drawn independently each tick.
+  const double angular_variance = (params.a_w_ux * ux * ux + params.a_w_uy * uy * uy + params.a_w_w * w * w) * interval;
+  const double drift_variance = (params.a_g_ux * ux * ux + params.a_g_uy * uy * uy + params.a_g_w * w * w) * interval;
+
+  return OdometryVariance{ translational, angular_variance + drift_variance };
+}
+
 }  // namespace stdr_simulation::motion
