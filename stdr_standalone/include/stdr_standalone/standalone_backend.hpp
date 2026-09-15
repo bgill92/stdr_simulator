@@ -65,6 +65,7 @@ public:
   [[nodiscard]] std::vector<std::string> laser_sensors(const std::string& robot_id) const override;
   [[nodiscard]] std::vector<std::string> sonar_sensors(const std::string& robot_id) const override;
   [[nodiscard]] std::optional<stdr_simulation::Pose2D> pose(const std::string& robot_id) const override;
+  [[nodiscard]] std::optional<stdr_simulation::Pose2D> odom_pose(const std::string& robot_id) const override;
   [[nodiscard]] std::optional<stdr_simulation::Twist2D> twist(const std::string& robot_id) const override;
   [[nodiscard]] std::optional<stdr_simulation::LaserScan> latest_laser(const std::string& robot_id,
                                                                        const std::string& sensor_id) const override;

@@ -279,6 +279,9 @@ public:
   /** Return the current pose of @p robot_id, or a zero-pose if not found. */
   [[nodiscard]] virtual stdr_simulation::Pose2D pose(const RobotId& robot_id) const = 0;
 
+  /** Return the belief pose @p robot_id reports as odometry, or a zero-pose if not found. */
+  [[nodiscard]] virtual stdr_simulation::Pose2D odom_pose(const RobotId& robot_id) const = 0;
+
   /** Return the current velocity command of @p robot_id, or zero if not found. */
   [[nodiscard]] virtual stdr_simulation::Twist2D twist(const RobotId& robot_id) const = 0;
 

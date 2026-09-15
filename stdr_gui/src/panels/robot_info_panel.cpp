@@ -92,6 +92,9 @@ void RobotInfoPanel::render_robot_entry(const stdr_simulation::world::RobotState
   // Pose.
   ImGui::Text("Pose:  x=%.3f  y=%.3f  θ=%.3f", robot.pose.x, robot.pose.y, robot.pose.theta);
 
+  // Odometry belief — diverges from Pose under a noisy odometry model.
+  ImGui::Text("Odom:  x=%.3f  y=%.3f  θ=%.3f", robot.odom_pose.x, robot.odom_pose.y, robot.odom_pose.theta);
+
   // Velocity.
   ImGui::Text("Vel:   vx=%.3f  vy=%.3f  ω=%.3f", robot.cmd_vel.linear_x, robot.cmd_vel.linear_y,
               robot.cmd_vel.angular_z);

@@ -322,6 +322,16 @@ public:
     return std::nullopt;
   }
 
+  /** @brief Return the belief pose @p robot_id reports as odometry, or nullopt if not found.
+   *
+   *  Equals pose() when the robot's kinematic config uses `odometry_model: perfect`
+   *  — otherwise it is the noise-free integration of the commanded velocity,
+   *  which can drift from the (possibly noisy) true pose returned by pose(). */
+  [[nodiscard]] virtual std::optional<stdr_simulation::Pose2D> odom_pose(const std::string& /*robot_id*/) const
+  {
+    return std::nullopt;
+  }
+
   /** @brief Return the current velocity command of @p robot_id, or nullopt if not found. */
   [[nodiscard]] virtual std::optional<stdr_simulation::Twist2D> twist(const std::string& /*robot_id*/) const
   {

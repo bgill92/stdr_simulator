@@ -81,6 +81,12 @@ public:
     return p.value_or(stdr_simulation::Pose2D{});
   }
 
+  [[nodiscard]] stdr_simulation::Pose2D odom_pose(const RobotId& robot_id) const override
+  {
+    const std::optional<stdr_simulation::Pose2D> p = backend_.odom_pose(robot_id);
+    return p.value_or(stdr_simulation::Pose2D{});
+  }
+
   [[nodiscard]] stdr_simulation::Twist2D twist(const RobotId& robot_id) const override
   {
     const std::optional<stdr_simulation::Twist2D> t = backend_.twist(robot_id);

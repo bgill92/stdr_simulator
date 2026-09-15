@@ -1,5 +1,5 @@
 /** @file Example plotter: drives robot0 in a circle and plots the deviation
- *  between commanded-integrated (dead-reckoning) pose and actual odometry.
+ *  between the ground-truth pose and the simulation engine's odometry belief.
  *
  *  This file serves as living documentation of how to author a plotter plugin.
  *  It is also the primary integration test of the REGISTER_PLOTTER mechanism:
@@ -18,6 +18,21 @@
 namespace
 {
 
+// Circle-driving command, held constant for the lifetime of the plotter.
+constexpr double kDriveLinearVelocity = 0.3;   // m/s
+constexpr double kDriveAngularVelocity = 0.5;  // rad/s
+
+// Normalizes an angle difference to (-pi, pi] using the same atan2(sin, cos)
+// idiom already used for heading wraparound in ideal_motion_model.cpp and
+// omni_motion_model.cpp — stdr_simulation cannot be touched from this package,
+// so the idiom is reproduced locally rather than exposing a new cross-package
+// utility for one call site.
+[[nodiscard]] double wrapped_angle_diff(double a, double b)
+{
+  const double diff = a - b;
+  return std::atan2(std::sin(diff), std::cos(diff));
+}
+
 class PoseErrorPlotter : public stdr::plot::Plotter
 {
 public:
@@ -28,7 +43,7 @@ public:
 
   [[nodiscard]] std::string_view description() const override
   {
-    return "Drives robot0 in a circle and plots ground-truth vs dead-reckoning.";
+    return "Drives robot0 in a circle and plots ground-truth vs the engine's odometry belief.";
   }
 
   void on_init(const stdr::plot::SimIntrospection& sim) override
@@ -71,20 +86,14 @@ public:
     }
 
     // Command the robot to drive in a circle.
-    sim.cmd_velocity(robot_, 0.3, 0.5);
+    sim.cmd_velocity(robot_, kDriveLinearVelocity, kDriveAngularVelocity);
 
     const stdr_simulation::Pose2D gt = sim.pose(robot_);
+    const stdr_simulation::Pose2D odom = sim.odom_pose(robot_);
     const double t = sim.sim_time();
-    const double dt = t - last_t_;
-    last_t_ = t;
 
-    // Integrate dead-reckoning from the commanded velocity.
-    dead_.x += std::cos(dead_.theta) * 0.3 * dt;
-    dead_.y += std::sin(dead_.theta) * 0.3 * dt;
-    dead_.theta += 0.5 * dt;
-
-    out.scalar("err_xy", t, std::hypot(gt.x - dead_.x, gt.y - dead_.y));
-    out.scalar("err_theta", t, gt.theta - dead_.theta);
+    out.scalar("err_xy", t, std::hypot(gt.x - odom.x, gt.y - odom.y));
+    out.scalar("err_theta", t, wrapped_angle_diff(gt.theta, odom.theta));
   }
 
   void on_render(const stdr::plot::PlotView& data) override
@@ -97,12 +106,12 @@ public:
       ImPlot::SetupAxes("sim time (s)", "error");
       if (!xy.empty())
       {
-        ImPlot::PlotLine("|gt - dead| (m)", &xy[0].t, &xy[0].v, static_cast<int>(xy.size()), 0, 0,
+        ImPlot::PlotLine("|truth - odom| (m)", &xy[0].t, &xy[0].v, static_cast<int>(xy.size()), 0, 0,
                          static_cast<int>(sizeof(stdr::plot::TimedScalar)));
       }
       if (!th.empty())
       {
-        ImPlot::PlotLine("err theta (rad)", &th[0].t, &th[0].v, static_cast<int>(th.size()), 0, 0,
+        ImPlot::PlotLine("yaw error (rad)", &th[0].t, &th[0].v, static_cast<int>(th.size()), 0, 0,
                          static_cast<int>(sizeof(stdr::plot::TimedScalar)));
       }
       ImPlot::EndPlot();
@@ -111,8 +120,6 @@ public:
 
 private:
   std::string robot_;
-  stdr_simulation::Pose2D dead_{};
-  double last_t_{ 0.0 };
 };
 
 }  // namespace

@@ -24,6 +24,25 @@
 namespace stdr_gui_ros
 {
 
+namespace
+{
+
+// Shared by on_ground_truth() and on_odom() — both topics carry the pose in
+// the same nav_msgs/Odometry layout, differing only in which robot state
+// (truth vs. belief) they represent.
+[[nodiscard]] stdr_simulation::Pose2D odometry_msg_to_pose2d(const nav_msgs::msg::Odometry& msg)
+{
+  stdr_simulation::Pose2D pose;
+  pose.x = msg.pose.pose.position.x;
+  pose.y = msg.pose.pose.position.y;
+  // Extract yaw from the quaternion. tf2::getYaw handles gimbal lock gracefully
+  // and is consistent with the yaw convention used by StdrRobotNode.
+  pose.theta = tf2::getYaw(msg.pose.pose.orientation);
+  return pose;
+}
+
+}  // namespace
+
 Ros2Backend::Ros2Backend(std::shared_ptr<rclcpp::Node> node)
   : node_(std::move(node))
   , start_time_(node_->now())
@@ -324,8 +343,8 @@ std::shared_ptr<const stdr_gui::SimulationSnapshot> Ros2Backend::get_snapshot() 
     snapshot.thermal_sources = thermal_sources_;
     snapshot.sound_sources = sound_sources_;
 
-    // Build the robot list with the most recent ground-truth poses. Fall back
-    // to config.initial_pose if no ground truth has been received yet for a robot.
+    // Build the robot list with the most recent ground-truth and odometry poses.
+    // Fall back to config.initial_pose if neither has been received yet for a robot.
     snapshot.robots = robot_states_;
     for (stdr_simulation::world::RobotState& state : snapshot.robots)
     {
@@ -333,6 +352,11 @@ std::shared_ptr<const stdr_gui::SimulationSnapshot> Ros2Backend::get_snapshot() 
       if (pose_it != latest_pose_.end())
       {
         state.pose = pose_it->second;
+      }
+      const auto odom_pose_it = latest_odom_pose_.find(state.name);
+      if (odom_pose_it != latest_odom_pose_.end())
+      {
+        state.odom_pose = odom_pose_it->second;
       }
     }
 
@@ -430,6 +454,17 @@ std::optional<stdr_simulation::Pose2D> Ros2Backend::pose(const std::string& robo
   const std::lock_guard<std::mutex> lock(snapshot_mutex_);
   const auto it = latest_pose_.find(robot_id);
   if (it == latest_pose_.end())
+  {
+    return std::nullopt;
+  }
+  return it->second;
+}
+
+std::optional<stdr_simulation::Pose2D> Ros2Backend::odom_pose(const std::string& robot_id) const
+{
+  const std::lock_guard<std::mutex> lock(snapshot_mutex_);
+  const auto it = latest_odom_pose_.find(robot_id);
+  if (it == latest_odom_pose_.end())
   {
     return std::nullopt;
   }
@@ -671,6 +706,8 @@ void Ros2Backend::on_active_robots(const stdr_msgs::msg::RobotIndexedVectorMsg::
     {
       ground_truth_subs_.erase(name);
       latest_pose_.erase(name);
+      odom_subs_.erase(name);
+      latest_odom_pose_.erase(name);
       latest_cmd_vel_.erase(name);
       cmd_vel_pubs_.erase(name);
       move_robot_clients_.erase(name);
@@ -703,6 +740,7 @@ void Ros2Backend::on_active_robots(const stdr_msgs::msg::RobotIndexedVectorMsg::
       state.name = entry.name;
       state.config = parsed_configs[i];
       state.pose = state.config.initial_pose;
+      state.odom_pose = state.config.initial_pose;
 
       // The active-robots topic carries identity and config, not runtime command
       // state. Preserve any in-flight cmd_vel for robots that are already known
@@ -719,7 +757,7 @@ void Ros2Backend::on_active_robots(const stdr_msgs::msg::RobotIndexedVectorMsg::
 
       if (ground_truth_subs_.find(entry.name) == ground_truth_subs_.end())
       {
-        // New robot — create its ground-truth subscription and seed the pose cache.
+        // New robot — create its ground-truth and odometry subscriptions and seed the pose caches.
         const std::string robot_name = entry.name;
         rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr sub =
             node_->create_subscription<nav_msgs::msg::Odometry>(
@@ -729,6 +767,14 @@ void Ros2Backend::on_active_robots(const stdr_msgs::msg::RobotIndexedVectorMsg::
                 });
         ground_truth_subs_[robot_name] = sub;
         latest_pose_[robot_name] = state.config.initial_pose;
+
+        rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr odom_sub =
+            node_->create_subscription<nav_msgs::msg::Odometry>(
+                robot_name + "/odom", 10, [this, robot_name](const nav_msgs::msg::Odometry::SharedPtr odom_msg) {
+                  on_odom(robot_name, odom_msg);
+                });
+        odom_subs_[robot_name] = odom_sub;
+        latest_odom_pose_[robot_name] = state.config.initial_pose;
 
         // Create an AsyncParametersClient targeting this robot's own node.
         // StdrRobotNode derives its node name from the robot_name parameter
@@ -994,15 +1040,18 @@ void Ros2Backend::on_active_robots(const stdr_msgs::msg::RobotIndexedVectorMsg::
 
 void Ros2Backend::on_ground_truth(const std::string& robot_name, const nav_msgs::msg::Odometry::SharedPtr msg)
 {
-  stdr_simulation::Pose2D pose;
-  pose.x = msg->pose.pose.position.x;
-  pose.y = msg->pose.pose.position.y;
-  // Extract yaw from the quaternion. tf2::getYaw handles gimbal lock gracefully
-  // and is consistent with the yaw convention used by StdrRobotNode.
-  pose.theta = tf2::getYaw(msg->pose.pose.orientation);
+  const stdr_simulation::Pose2D pose = odometry_msg_to_pose2d(*msg);
 
   const std::lock_guard<std::mutex> lock(snapshot_mutex_);
   latest_pose_[robot_name] = pose;
+}
+
+void Ros2Backend::on_odom(const std::string& robot_name, const nav_msgs::msg::Odometry::SharedPtr msg)
+{
+  const stdr_simulation::Pose2D pose = odometry_msg_to_pose2d(*msg);
+
+  const std::lock_guard<std::mutex> lock(snapshot_mutex_);
+  latest_odom_pose_[robot_name] = pose;
 }
 
 void Ros2Backend::on_laser(const std::string& robot_name, const std::string& frame_id,
