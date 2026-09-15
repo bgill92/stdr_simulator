@@ -9,6 +9,9 @@
 #include <stdr_msgs/msg/sound_sensor_measurement_msg.hpp>
 #include <stdr_msgs/msg/thermal_sensor_measurement_msg.hpp>
 
+#include <stdexcept>
+#include <tuple>
+
 namespace stdr_parser
 {
 namespace
@@ -111,6 +114,7 @@ TEST(MsgConversions, KinematicConfigRoundTrip)
 {
   stdr_simulation::KinematicConfig kin;
   kin.type = "omni";
+  // Default OdometryModel::Perfect.
   kin.a_ux_ux = 1.0;
   kin.a_ux_uy = 2.0;
   kin.a_ux_w = 3.0;
@@ -127,12 +131,14 @@ TEST(MsgConversions, KinematicConfigRoundTrip)
   const stdr_msgs::msg::KinematicMsg msg = to_ros_msg(kin);
 
   EXPECT_EQ(msg.type, "omni");
+  EXPECT_EQ(msg.odometry_model, "perfect");
   EXPECT_NEAR(msg.a_ux_ux, 1.0f, 1e-5f);
   EXPECT_NEAR(msg.a_g_w, 12.0f, 1e-5f);
 
   const stdr_simulation::KinematicConfig roundtripped = from_ros_msg(msg);
 
   EXPECT_EQ(roundtripped.type, "omni");
+  EXPECT_EQ(roundtripped.odometry_model, stdr_simulation::OdometryModel::Perfect);
   EXPECT_NEAR(roundtripped.a_ux_ux, 1.0, 1e-5);
   EXPECT_NEAR(roundtripped.a_ux_uy, 2.0, 1e-5);
   EXPECT_NEAR(roundtripped.a_ux_w, 3.0, 1e-5);
@@ -145,6 +151,40 @@ TEST(MsgConversions, KinematicConfigRoundTrip)
   EXPECT_NEAR(roundtripped.a_g_ux, 10.0, 1e-5);
   EXPECT_NEAR(roundtripped.a_g_uy, 11.0, 1e-5);
   EXPECT_NEAR(roundtripped.a_g_w, 12.0, 1e-5);
+}
+
+TEST(MsgConversions, KinematicConfigVelocityOdometryModelRoundTrip)
+{
+  stdr_simulation::KinematicConfig kin;
+  kin.type = "ideal";
+  kin.odometry_model = stdr_simulation::OdometryModel::Velocity;
+
+  const stdr_msgs::msg::KinematicMsg msg = to_ros_msg(kin);
+  EXPECT_EQ(msg.odometry_model, "velocity");
+
+  const stdr_simulation::KinematicConfig roundtripped = from_ros_msg(msg);
+  EXPECT_EQ(roundtripped.odometry_model, stdr_simulation::OdometryModel::Velocity);
+}
+
+// Messages produced before this field existed carry an empty string, which
+// must be treated the same as an explicit "perfect" — see KinematicMsg.msg.
+TEST(MsgConversions, KinematicConfigEmptyOdometryModelTreatedAsPerfect)
+{
+  stdr_msgs::msg::KinematicMsg msg;
+  msg.type = "ideal";
+  msg.odometry_model = "";
+
+  const stdr_simulation::KinematicConfig cfg = from_ros_msg(msg);
+  EXPECT_EQ(cfg.odometry_model, stdr_simulation::OdometryModel::Perfect);
+}
+
+TEST(MsgConversions, KinematicConfigInvalidOdometryModelThrows)
+{
+  stdr_msgs::msg::KinematicMsg msg;
+  msg.type = "ideal";
+  msg.odometry_model = "not_a_real_model";
+
+  EXPECT_THROW(std::ignore = from_ros_msg(msg), std::invalid_argument);
 }
 
 // --- LaserConfig ---

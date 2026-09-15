@@ -102,6 +102,64 @@ TEST(WorldModelTest, SetRobotPose)
   EXPECT_DOUBLE_EQ(state->pose.theta, 1.5);
 }
 
+TEST(WorldModelTest, AddRobotInitializesOdomPoseToInitialPose)
+{
+  WorldModel world;
+  RobotConfig cfg = minimal_robot_config();
+  cfg.initial_pose = { 1.0, 2.0, 0.5 };
+
+  const std::string name = world.add_robot(cfg);
+
+  const RobotState* state = world.get_robot(name);
+  ASSERT_THAT(state, NotNull());
+  EXPECT_DOUBLE_EQ(state->odom_pose.x, 1.0);
+  EXPECT_DOUBLE_EQ(state->odom_pose.y, 2.0);
+  EXPECT_DOUBLE_EQ(state->odom_pose.theta, 0.5);
+}
+
+// set_robot_pose is a teleport from outside the engine: the odometry belief
+// did not observe it, so it must collapse back onto ground truth.
+TEST(WorldModelTest, SetRobotPoseResetsOdomPose)
+{
+  WorldModel world;
+  const std::string name = world.add_robot(minimal_robot_config());
+
+  // Diverge odom from truth first via the engine-tick commit method.
+  world.set_robot_poses(name, Pose2D{ 5.0, 5.0, 0.0 }, Pose2D{ 1.0, 1.0, 0.0 });
+  ASSERT_THAT(world.get_robot(name), NotNull());
+  ASSERT_DOUBLE_EQ(world.get_robot(name)->odom_pose.x, 1.0);
+
+  const Pose2D teleport{ 3.0, 4.0, 1.5 };
+  world.set_robot_pose(name, teleport);
+
+  const RobotState* state = world.get_robot(name);
+  ASSERT_THAT(state, NotNull());
+  EXPECT_DOUBLE_EQ(state->pose.x, teleport.x);
+  EXPECT_DOUBLE_EQ(state->odom_pose.x, teleport.x);
+  EXPECT_DOUBLE_EQ(state->odom_pose.y, teleport.y);
+  EXPECT_DOUBLE_EQ(state->odom_pose.theta, teleport.theta);
+}
+
+// set_robot_poses is the engine's per-tick commit: it must set truth and
+// odometry independently, letting them diverge.
+TEST(WorldModelTest, SetRobotPosesCommitsTruthAndOdomIndependently)
+{
+  WorldModel world;
+  const std::string name = world.add_robot(minimal_robot_config());
+
+  const Pose2D true_pose{ 2.0, 0.0, 0.1 };
+  const Pose2D odom_pose{ 2.1, 0.05, 0.12 };
+  world.set_robot_poses(name, true_pose, odom_pose);
+
+  const RobotState* state = world.get_robot(name);
+  ASSERT_THAT(state, NotNull());
+  EXPECT_DOUBLE_EQ(state->pose.x, true_pose.x);
+  EXPECT_DOUBLE_EQ(state->pose.y, true_pose.y);
+  EXPECT_DOUBLE_EQ(state->odom_pose.x, odom_pose.x);
+  EXPECT_DOUBLE_EQ(state->odom_pose.y, odom_pose.y);
+  EXPECT_DOUBLE_EQ(state->odom_pose.theta, odom_pose.theta);
+}
+
 TEST(WorldModelTest, SetRobotCmdVel)
 {
   WorldModel world;

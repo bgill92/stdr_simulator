@@ -199,16 +199,22 @@ void SimulationEngine::step(double dt)
   for (const world::RobotState& robot : robots)
   {
     // --- Motion update ---
+    // new_pose: ground truth, possibly perturbed by Thrun velocity-model
+    // noise (update()).  new_odom: the noise-free integration of the same
+    // command (integrate()) — the robot's own belief about where it is.
     Pose2D new_pose;
+    Pose2D new_odom;
     if (robot.config.kinematic_model.type == "omni")
     {
       new_pose = omni_motion_.update(robot.pose, robot.cmd_vel, dt, robot.config.kinematic_model,
                                      robot.config.center_of_rotation);
+      new_odom = omni_motion_.integrate(robot.odom_pose, robot.cmd_vel, dt, robot.config.center_of_rotation);
     }
     else
     {
       new_pose = ideal_motion_.update(robot.pose, robot.cmd_vel, dt, robot.config.kinematic_model,
                                       robot.config.center_of_rotation);
+      new_odom = ideal_motion_.integrate(robot.odom_pose, robot.cmd_vel, dt, robot.config.center_of_rotation);
     }
 
     // --- Collision check and pose commit ---
@@ -218,17 +224,21 @@ void SimulationEngine::step(double dt)
       const bool collides = collision_checker_.check_path_collision(new_pose, robot.pose, robot.config.footprint, *map);
       if (!collides)
       {
-        world_.set_robot_pose(robot.name, new_pose);
+        world_.set_robot_poses(robot.name, new_pose, new_odom);
       }
       else
       {
-        // On collision, keep the old pose — do not call set_robot_pose.
+        // On collision the TRUE pose holds at its prior value — the wall
+        // physically stops the robot — but odometry still advances to
+        // new_odom: the wheels keep turning and the encoders cannot see the
+        // wall, so they keep counting as if the commanded motion succeeded.
+        world_.set_robot_poses(robot.name, robot.pose, new_odom);
         robot_collided = true;
       }
     }
     else
     {
-      world_.set_robot_pose(robot.name, new_pose);
+      world_.set_robot_poses(robot.name, new_pose, new_odom);
     }
 
     // --- Re-read the robot state after the pose update. ---

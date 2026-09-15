@@ -28,6 +28,7 @@ std::string WorldModel::add_robot(const stdr_simulation::RobotConfig& config)
     .name = name,
     .config = config,
     .pose = config.initial_pose,
+    .odom_pose = config.initial_pose,
     .cmd_vel = {},
   };
   return name;
@@ -43,7 +44,21 @@ void WorldModel::set_robot_pose(const std::string& name, const stdr_simulation::
   const auto it = robots_.find(name);
   if (it != robots_.end())
   {
+    // Teleport: the odometry belief did not observe this motion, so it must
+    // collapse back onto ground truth, exactly as at spawn.
     it->second.pose = pose;
+    it->second.odom_pose = pose;
+  }
+}
+
+void WorldModel::set_robot_poses(const std::string& name, const stdr_simulation::Pose2D& true_pose,
+                                 const stdr_simulation::Pose2D& odom_pose)
+{
+  const auto it = robots_.find(name);
+  if (it != robots_.end())
+  {
+    it->second.pose = true_pose;
+    it->second.odom_pose = odom_pose;
   }
 }
 

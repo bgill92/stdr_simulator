@@ -1,6 +1,7 @@
 #include <stdr_simulation/config_loader.hpp>
 
 #include <stdr_simulation/geometry_utils.hpp>
+#include <stdr_simulation/odometry_model.hpp>
 
 #include <yaml-cpp/yaml.h>
 
@@ -177,9 +178,19 @@ SonarConfig parse_sonar_specs(const YAML::Node& specs)
                                                                          const std::string& base_dir)
 {
   KinematicConfig cfg;
-  const auto apply_kinematic_specs = [&](const YAML::Node& specs) {
+  // Returns an error string (rather than throwing) so the caller can fold it
+  // into the same tl::expected error channel used for file-load failures.
+  const auto apply_kinematic_specs = [&](const YAML::Node& specs) -> tl::expected<void, std::string> {
     if (specs["kinematic_model"])
       cfg.type = specs["kinematic_model"].as<std::string>();
+    if (specs["odometry_model"])
+    {
+      const tl::expected<OdometryModel, std::string> model =
+          parse_odometry_model(specs["odometry_model"].as<std::string>());
+      if (!model)
+        return tl::unexpected(model.error());
+      cfg.odometry_model = *model;
+    }
     if (specs["kinematic_parameters"])
     {
       const YAML::Node p = specs["kinematic_parameters"];
@@ -208,6 +219,7 @@ SonarConfig parse_sonar_specs(const YAML::Node& specs)
       if (p["a_g_w"])
         cfg.a_g_w = p["a_g_w"].as<double>();
     }
+    return {};
   };
 
   if (node["filename"])
@@ -219,7 +231,11 @@ SonarConfig parse_sonar_specs(const YAML::Node& specs)
       const YAML::Node file_root = YAML::LoadFile(full.string());
       const YAML::Node file_specs = file_root["kinematic"]["kinematic_specifications"];
       if (file_specs)
-        apply_kinematic_specs(file_specs);
+      {
+        const tl::expected<void, std::string> applied = apply_kinematic_specs(file_specs);
+        if (!applied)
+          return tl::unexpected(applied.error());
+      }
     }
     catch (const YAML::Exception& e)
     {
@@ -228,7 +244,9 @@ SonarConfig parse_sonar_specs(const YAML::Node& specs)
   }
   if (node["kinematic_specifications"])
   {
-    apply_kinematic_specs(node["kinematic_specifications"]);
+    const tl::expected<void, std::string> applied = apply_kinematic_specs(node["kinematic_specifications"]);
+    if (!applied)
+      return tl::unexpected(applied.error());
   }
   return cfg;
 }

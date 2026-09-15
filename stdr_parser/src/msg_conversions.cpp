@@ -1,5 +1,12 @@
 #include <stdr_parser/msg_conversions.hpp>
 
+#include <stdr_simulation/odometry_model.hpp>
+
+#include <tl_expected/expected.hpp>
+
+#include <stdexcept>
+#include <string>
+
 namespace stdr_parser
 {
 
@@ -95,6 +102,7 @@ stdr_msgs::msg::KinematicMsg to_ros_msg(const stdr_simulation::KinematicConfig& 
 {
   stdr_msgs::msg::KinematicMsg msg;
   msg.type = kin.type;
+  msg.odometry_model = std::string(stdr_simulation::to_string(kin.odometry_model));
   msg.a_ux_ux = static_cast<float>(kin.a_ux_ux);
   msg.a_ux_uy = static_cast<float>(kin.a_ux_uy);
   msg.a_ux_w = static_cast<float>(kin.a_ux_w);
@@ -114,6 +122,23 @@ stdr_simulation::KinematicConfig from_ros_msg(const stdr_msgs::msg::KinematicMsg
 {
   stdr_simulation::KinematicConfig kin;
   kin.type = msg.type;
+  // Empty means "perfect" (e.g. messages produced before this field existed);
+  // any other unrecognized value is a malformed message and fails loudly
+  // rather than silently downgrading to Perfect and hiding a bug upstream.
+  if (msg.odometry_model.empty())
+  {
+    kin.odometry_model = stdr_simulation::OdometryModel::Perfect;
+  }
+  else
+  {
+    const tl::expected<stdr_simulation::OdometryModel, std::string> parsed =
+        stdr_simulation::parse_odometry_model(msg.odometry_model);
+    if (!parsed)
+    {
+      throw std::invalid_argument(parsed.error());
+    }
+    kin.odometry_model = *parsed;
+  }
   kin.a_ux_ux = static_cast<double>(msg.a_ux_ux);
   kin.a_ux_uy = static_cast<double>(msg.a_ux_uy);
   kin.a_ux_w = static_cast<double>(msg.a_ux_w);

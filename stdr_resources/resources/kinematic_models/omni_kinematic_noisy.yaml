@@ -1,6 +1,7 @@
 kinematic:
   kinematic_specifications:
     kinematic_model: omni
+    odometry_model: velocity
     kinematic_parameters:
       a_ux_ux: 0.0
       a_ux_uy: 0.0

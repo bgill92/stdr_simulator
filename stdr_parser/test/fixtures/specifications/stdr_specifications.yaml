@@ -68,7 +68,7 @@ specifications:
     allowed: [filename, kinematic_specifications]
     required: [kinematic_specifications]
   kinematic_specifications:
-    allowed: [kinematic_model, kinematic_parameters]
+    allowed: [kinematic_model, odometry_model, kinematic_parameters]
     required: [kinematic_model]
   kinematic_parameters:
     allowed: [a_ux_ux, a_ux_uy, a_ux_w, a_uy_ux, a_uy_uy, a_uy_w, a_w_ux, a_w_uy, a_w_w, a_g_ux, a_g_uy, a_g_w]
@@ -111,6 +111,8 @@ specifications:
     default: 1.0
   kinematic_model:
     default: ideal
+  odometry_model:
+    default: perfect
   a_ux_ux:
     default: 0
   a_ux_uy:
