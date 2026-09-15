@@ -16,7 +16,11 @@ struct RobotState
 {
   std::string name;
   stdr_simulation::RobotConfig config;
-  stdr_simulation::Pose2D pose;
+  stdr_simulation::Pose2D pose;  ///< Ground truth pose.
+  /** Odometry belief pose — the robot's own noise-free estimate of where it
+   *  is, which diverges from `pose` under OdometryModel::Velocity. See
+   *  set_robot_pose vs. set_robot_poses for how the two are kept in sync. */
+  stdr_simulation::Pose2D odom_pose;
   stdr_simulation::Twist2D cmd_vel;
 };
 
@@ -70,11 +74,35 @@ public:
   void remove_robot(const std::string& name);
 
   /**
-   * @brief Update the pose of a robot. No-op if the robot is not found.
+   * @brief Teleport a robot to a new pose from outside the engine (e.g. GUI
+   * drag, a service call, or a scripted reset).
+   *
+   * Also resets odom_pose to the same value: a teleport is not something the
+   * robot's own encoders observed, so after it the odometry belief must equal
+   * ground truth again, exactly as it did at spawn. No-op if the robot is not
+   * found.
+   *
    * @param name Robot name.
-   * @param pose New pose in world frame.
+   * @param pose New pose in world frame, applied to both pose and odom_pose.
    */
   void set_robot_pose(const std::string& name, const stdr_simulation::Pose2D& pose);
+
+  /**
+   * @brief Commit one simulation tick's motion-model outputs.
+   *
+   * Unlike set_robot_pose (an external teleport that collapses odom onto
+   * truth), this sets the true pose and the odometry belief pose
+   * independently — the engine's per-tick way of recording that the two may
+   * have diverged (OdometryModel::Velocity) or that the robot collided
+   * (truth held at its prior value while odometry kept advancing). No-op if
+   * the robot is not found.
+   *
+   * @param name       Robot name.
+   * @param true_pose  New ground-truth pose in world frame.
+   * @param odom_pose  New odometry belief pose in world frame.
+   */
+  void set_robot_poses(const std::string& name, const stdr_simulation::Pose2D& true_pose,
+                       const stdr_simulation::Pose2D& odom_pose);
 
   /**
    * @brief Update the velocity command for a robot. No-op if not found.

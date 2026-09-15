@@ -1,3 +1,4 @@
+#include <stdr_simulation/motion/ideal_motion_model.hpp>
 #include <stdr_simulation/simulation_engine.hpp>
 #include <stdr_simulation/types.hpp>
 #include <stdr_simulation/world/world_model.hpp>
@@ -58,6 +59,19 @@ OccupancyGrid free_map()
   map.resolution = 0.1;
   map.origin = { 0.0, 0.0, 0.0 };
   map.data.assign(static_cast<std::size_t>(20 * 20), 0);
+  return map;
+}
+
+// Builds on free_map() by occupying an entire column (x in [0.6, 0.7)) as a
+// vertical wall spanning the full height of the grid.
+OccupancyGrid wall_map()
+{
+  OccupancyGrid map = free_map();
+  constexpr int kWallCol = 6;
+  for (int row = 0; row < map.height; ++row)
+  {
+    map.data[static_cast<std::size_t>(row * map.width + kWallCol)] = 100;
+  }
   return map;
 }
 
@@ -406,6 +420,120 @@ TEST(SimulationEngineTest, SchedulingModeAppliesToSpawnedRobots)
   const std::string name = engine.spawn_robot(cfg, Pose2D{ 1.0, 1.0, 0.0 });
 
   EXPECT_NEAR(engine.effective_sensor_rate(name, StreamKind::Laser, 0), 7.0, 1e-9);
+}
+
+// ---- Odometry belief pose ----------------------------------------------------
+
+TEST(SimulationEngineTest, SpawnInitializesOdomPoseToInitialPose)
+{
+  world::WorldModel world;
+  SimulationEngine engine{ world };
+
+  const Pose2D start{ 1.0, 2.0, 0.3 };
+  const std::string name = engine.spawn_robot(minimal_robot(), start);
+
+  const world::RobotState* state = world.get_robot(name);
+  ASSERT_THAT(state, NotNull());
+  EXPECT_DOUBLE_EQ(state->odom_pose.x, start.x);
+  EXPECT_DOUBLE_EQ(state->odom_pose.y, start.y);
+  EXPECT_DOUBLE_EQ(state->odom_pose.theta, start.theta);
+}
+
+// Under the default OdometryModel::Perfect, truth and odometry integrate the
+// same noise-free command, so they must match exactly after any number of steps.
+TEST(SimulationEngineTest, PerfectOdometryMatchesTruePoseExactly)
+{
+  world::WorldModel world;
+  SimulationEngine engine{ world };
+
+  const std::string name = engine.spawn_robot(minimal_robot(), Pose2D{ 0.0, 0.0, 0.0 });
+  engine.set_cmd_vel(name, Twist2D{ 0.5, 0.0, 0.3 });
+
+  for (int i = 0; i < 20; ++i)
+  {
+    engine.step(0.1);
+  }
+
+  const world::RobotState* state = world.get_robot(name);
+  ASSERT_THAT(state, NotNull());
+  EXPECT_DOUBLE_EQ(state->pose.x, state->odom_pose.x);
+  EXPECT_DOUBLE_EQ(state->pose.y, state->odom_pose.y);
+  EXPECT_DOUBLE_EQ(state->pose.theta, state->odom_pose.theta);
+}
+
+// Under OdometryModel::Velocity, odom_pose must track an independent
+// noise-free integration of the same commands, while the true pose — which
+// receives the sampled noise — diverges from it.
+TEST(SimulationEngineTest, VelocityOdometryMatchesCleanIntegrationAndPoseDiverges)
+{
+  world::WorldModel world;
+  SimulationEngine engine{ world };
+
+  RobotConfig cfg = minimal_robot();
+  cfg.kinematic_model.odometry_model = OdometryModel::Velocity;
+  cfg.kinematic_model.a_ux_ux = 0.05;
+  cfg.kinematic_model.a_w_w = 0.05;
+
+  const Pose2D start{ 0.0, 0.0, 0.0 };
+  const std::string name = engine.spawn_robot(cfg, start);
+  const Twist2D cmd{ 1.0, 0.0, 0.3 };
+  engine.set_cmd_vel(name, cmd);
+
+  // Independent reference belief integrator — deterministic (integrate()
+  // draws no RNG samples), so it must track the engine's odom_pose exactly.
+  const motion::IdealMotionModel reference_integrator;
+  Pose2D expected_odom = start;
+  bool pose_diverged = false;
+
+  for (int i = 0; i < 30; ++i)
+  {
+    engine.step(0.1);
+    expected_odom = reference_integrator.integrate(expected_odom, cmd, 0.1);
+
+    const world::RobotState* state = world.get_robot(name);
+    ASSERT_THAT(state, NotNull());
+    if (std::abs(state->pose.x - state->odom_pose.x) > 1e-9 || std::abs(state->pose.y - state->odom_pose.y) > 1e-9)
+    {
+      pose_diverged = true;
+    }
+  }
+
+  const world::RobotState* state = world.get_robot(name);
+  ASSERT_THAT(state, NotNull());
+  EXPECT_NEAR(state->odom_pose.x, expected_odom.x, 1e-9);
+  EXPECT_NEAR(state->odom_pose.y, expected_odom.y, 1e-9);
+  EXPECT_NEAR(state->odom_pose.theta, expected_odom.theta, 1e-9);
+  EXPECT_TRUE(pose_diverged) << "Velocity-mode noise should separate the true pose from odometry over 30 steps";
+}
+
+// On collision the true pose must hold at its prior value, but odometry must
+// keep advancing — the wheels are still turning and the encoders cannot see
+// the wall.
+TEST(SimulationEngineTest, CollisionHoldsTruePoseButOdomKeepsAdvancing)
+{
+  world::WorldModel world;
+  world.set_map(wall_map());
+  SimulationEngine engine{ world };
+
+  // Explicit 0.03 m footprint radius (smaller than minimal_robot()'s default
+  // 0.05 m) so the robot at x=0.55 spans [0.52, 0.58] — clear of the wall at
+  // x=0.6 before stepping, not merely grazing its boundary. After a 1 m/s
+  // step for 0.1 s (dx=0.1 m) the footprint spans [0.62, 0.68], squarely
+  // inside the occupied cell at x in [0.6, 0.7), so the collision is
+  // unambiguous on both sides of step().
+  RobotConfig cfg = minimal_robot();
+  cfg.footprint.radius = 0.03;
+  const Pose2D start{ 0.55, 1.0, 0.0 };
+  const std::string name = engine.spawn_robot(cfg, start);
+  engine.set_cmd_vel(name, Twist2D{ 1.0, 0.0, 0.0 });
+
+  engine.step(0.1);
+
+  const world::RobotState* state = world.get_robot(name);
+  ASSERT_THAT(state, NotNull());
+  EXPECT_DOUBLE_EQ(state->pose.x, start.x);
+  EXPECT_DOUBLE_EQ(state->pose.y, start.y);
+  EXPECT_GT(state->odom_pose.x, start.x);
 }
 
 }  // namespace

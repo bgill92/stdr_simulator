@@ -1,11 +1,16 @@
 #include <stdr_simulation/motion/ideal_motion_model.hpp>
+#include <stdr_simulation/motion/noise_model.hpp>
 #include <stdr_simulation/motion/omni_motion_model.hpp>
 #include <stdr_simulation/types.hpp>
 
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
+#include <cmath>
 #include <numbers>
+#include <random>
+#include <stdexcept>
+#include <tuple>
 
 namespace stdr_simulation::motion
 {
@@ -15,9 +20,22 @@ namespace
 using ::testing::DoubleNear;
 
 // All alpha coefficients zero → deterministic, noise-free kinematics.
+// odometry_model defaults to Perfect, so this is also the "noise disabled"
+// config used throughout this file.
 KinematicConfig zero_noise_config()
 {
   return KinematicConfig{};
+}
+
+// Nonzero alphas under OdometryModel::Velocity — used by the tests that
+// distinguish update() (noisy truth) from integrate() (clean belief).
+KinematicConfig velocity_noise_config()
+{
+  KinematicConfig cfg;
+  cfg.odometry_model = OdometryModel::Velocity;
+  cfg.a_ux_ux = 0.05;
+  cfg.a_w_w = 0.05;
+  return cfg;
 }
 
 constexpr double kDt = 0.1;
@@ -250,6 +268,175 @@ TEST(OmniMotionModelCenterOfRotationTest, PureRotationAboutOffsetPivotSweepsArc)
   // Distance from body origin to the world-frame pivot must equal |pivot| = 1.
   const double dist_to_pivot = std::hypot(pose.x - pivot_world_x, pose.y - pivot_world_y);
   EXPECT_THAT(dist_to_pivot, DoubleNear(1.0, 1e-9));
+}
+
+// ---- integrate() vs. update(): OdometryModel semantics ----------------------
+
+TEST(IdealMotionModelIntegrateTest, PerfectMatchesUpdateExactly)
+{
+  const IdealMotionModel model{ 42U };
+  const Pose2D start{ 0.5, -0.5, 0.3 };
+  const Twist2D cmd{ 1.0, 0.0, 0.7 };
+  // odometry_model == Perfect, so update() draws no noise and must match
+  // integrate() bit-for-bit.
+  const Pose2D updated = model.update(start, cmd, kDt, zero_noise_config());
+  const Pose2D integrated = model.integrate(start, cmd, kDt);
+  EXPECT_THAT(integrated.x, DoubleNear(updated.x, kTol));
+  EXPECT_THAT(integrated.y, DoubleNear(updated.y, kTol));
+  EXPECT_THAT(integrated.theta, DoubleNear(updated.theta, kTol));
+}
+
+// Nonzero alphas under Perfect must still be ignored: update() == integrate().
+TEST(IdealMotionModelIntegrateTest, PerfectIgnoresNonzeroAlphas)
+{
+  const IdealMotionModel model{ 42U };
+  const Pose2D start{ 0.0, 0.0, 0.0 };
+  const Twist2D cmd{ 1.0, 0.0, 0.5 };
+  KinematicConfig cfg = velocity_noise_config();
+  cfg.odometry_model = OdometryModel::Perfect;  // Alphas set, but ignored.
+  const Pose2D updated = model.update(start, cmd, kDt, cfg);
+  const Pose2D integrated = model.integrate(start, cmd, kDt);
+  EXPECT_THAT(integrated.x, DoubleNear(updated.x, kTol));
+  EXPECT_THAT(integrated.y, DoubleNear(updated.y, kTol));
+  EXPECT_THAT(integrated.theta, DoubleNear(updated.theta, kTol));
+}
+
+// Under Velocity with nonzero alphas, repeated update() calls must diverge
+// from the clean integrate() trajectory — that divergence is the odometry
+// error the belief pose is meant to expose.
+TEST(IdealMotionModelIntegrateTest, VelocityDivergesFromIntegrate)
+{
+  const IdealMotionModel model{ 7U };
+  const KinematicConfig cfg = velocity_noise_config();
+  const Twist2D cmd{ 1.0, 0.0, 0.3 };
+
+  Pose2D noisy{ 0.0, 0.0, 0.0 };
+  Pose2D clean{ 0.0, 0.0, 0.0 };
+  bool diverged = false;
+  for (int step = 0; step < 50; ++step)
+  {
+    noisy = model.update(noisy, cmd, kDt, cfg);
+    clean = model.integrate(clean, cmd, kDt);
+    if (std::abs(noisy.x - clean.x) > 1e-6 || std::abs(noisy.y - clean.y) > 1e-6 ||
+        std::abs(noisy.theta - clean.theta) > 1e-6)
+    {
+      diverged = true;
+    }
+  }
+  EXPECT_TRUE(diverged) << "Velocity-mode noise should eventually separate update() from integrate()";
+}
+
+TEST(OmniMotionModelIntegrateTest, PerfectMatchesUpdateExactly)
+{
+  const OmniMotionModel model{ 42U };
+  const Pose2D start{ -0.2, 0.4, -0.1 };
+  const Twist2D cmd{ 1.0, 0.5, 0.4 };
+  const Pose2D updated = model.update(start, cmd, kDt, zero_noise_config());
+  const Pose2D integrated = model.integrate(start, cmd, kDt);
+  EXPECT_THAT(integrated.x, DoubleNear(updated.x, kTol));
+  EXPECT_THAT(integrated.y, DoubleNear(updated.y, kTol));
+  EXPECT_THAT(integrated.theta, DoubleNear(updated.theta, kTol));
+}
+
+TEST(OmniMotionModelIntegrateTest, VelocityDivergesFromIntegrate)
+{
+  const OmniMotionModel model{ 7U };
+  const KinematicConfig cfg = velocity_noise_config();
+  const Twist2D cmd{ 1.0, 0.5, 0.3 };
+
+  Pose2D noisy{ 0.0, 0.0, 0.0 };
+  Pose2D clean{ 0.0, 0.0, 0.0 };
+  bool diverged = false;
+  for (int step = 0; step < 50; ++step)
+  {
+    noisy = model.update(noisy, cmd, kDt, cfg);
+    clean = model.integrate(clean, cmd, kDt);
+    if (std::abs(noisy.x - clean.x) > 1e-6 || std::abs(noisy.y - clean.y) > 1e-6 ||
+        std::abs(noisy.theta - clean.theta) > 1e-6)
+    {
+      diverged = true;
+    }
+  }
+  EXPECT_TRUE(diverged) << "Velocity-mode noise should eventually separate update() from integrate()";
+}
+
+// ---- apply_noise: dt validation -----------------------------------------------
+
+// The 1/dt variance scaling divides by dt unconditionally, so a non-positive
+// dt must be rejected before it can produce a NaN sigma.
+TEST(ApplyNoiseTest, ZeroDtThrows)
+{
+  std::mt19937 rng{ 1U };
+  const Twist2D cmd{ 1.0, 0.0, 0.0 };
+  EXPECT_THROW(std::ignore = apply_noise(cmd, velocity_noise_config(), 0.0, rng), std::invalid_argument);
+}
+
+TEST(ApplyNoiseTest, NegativeDtThrows)
+{
+  std::mt19937 rng{ 1U };
+  const Twist2D cmd{ 1.0, 0.0, 0.0 };
+  EXPECT_THROW(std::ignore = apply_noise(cmd, velocity_noise_config(), -0.1, rng), std::invalid_argument);
+}
+
+// The dt guard sits before the Perfect early-return specifically so it also
+// applies here — a non-positive dt must not be silently accepted just
+// because the model happens to be Perfect.
+TEST(ApplyNoiseTest, ZeroDtThrowsUnderPerfect)
+{
+  std::mt19937 rng{ 1U };
+  const Twist2D cmd{ 1.0, 0.0, 0.0 };
+  EXPECT_THROW(std::ignore = apply_noise(cmd, zero_noise_config(), 0.0, rng), std::invalid_argument);
+}
+
+// ---- apply_noise: OdometryModel::Perfect -------------------------------------
+
+TEST(ApplyNoiseTest, PerfectReturnsCommandUnchangedWithZeroDrift)
+{
+  std::mt19937 rng{ 1U };
+  const Twist2D cmd{ 1.0, 0.5, 0.2 };
+  KinematicConfig cfg = velocity_noise_config();
+  cfg.odometry_model = OdometryModel::Perfect;  // Alphas present but must be ignored.
+  const NoiseResult result = apply_noise(cmd, cfg, kDt, rng);
+  EXPECT_THAT(result.noisy_cmd.linear_x, DoubleNear(cmd.linear_x, kTol));
+  EXPECT_THAT(result.noisy_cmd.linear_y, DoubleNear(cmd.linear_y, kTol));
+  EXPECT_THAT(result.noisy_cmd.angular_z, DoubleNear(cmd.angular_z, kTol));
+  EXPECT_THAT(result.drift, DoubleNear(0.0, kTol));
+}
+
+// ---- apply_noise: rate-invariant variance scaling ----------------------------
+
+// With v=1, w=0 and only a_ux_ux nonzero, the linear_x noise variance should
+// equal a_ux_ux / dt (see odometry-sim-highlights.md §5). Sampling many draws
+// at two different dt values and comparing the empirical variance against
+// that prediction checks the 1/dt scaling directly.
+TEST(ApplyNoiseTest, LinearNoiseVarianceScalesInverselyWithDt)
+{
+  constexpr int kSamples = 20000;
+  constexpr double kAlphaUxUx = 0.01;
+  const Twist2D cmd{ 1.0, 0.0, 0.0 };
+
+  KinematicConfig cfg;
+  cfg.odometry_model = OdometryModel::Velocity;
+  cfg.a_ux_ux = kAlphaUxUx;
+
+  for (const double dt : { 0.01, 0.1 })
+  {
+    std::mt19937 rng{ 123U };
+    double sum = 0.0;
+    double sum_sq = 0.0;
+    for (int i = 0; i < kSamples; ++i)
+    {
+      const NoiseResult result = apply_noise(cmd, cfg, dt, rng);
+      const double noise = result.noisy_cmd.linear_x - cmd.linear_x;
+      sum += noise;
+      sum_sq += noise * noise;
+    }
+    const double mean = sum / kSamples;
+    const double variance = sum_sq / kSamples - mean * mean;
+    const double expected_variance = kAlphaUxUx / dt;
+    EXPECT_THAT(variance, DoubleNear(expected_variance, expected_variance * 0.1))
+        << "dt=" << dt << " expected variance " << expected_variance << " got " << variance;
+  }
 }
 
 }  // namespace

@@ -163,6 +163,38 @@ TEST(LoadRobotConfig, InlineOnlyLaserAndKinematic)
   EXPECT_EQ(config->kinematic_model.type, "omni");
 }
 
+TEST(LoadRobotConfig, KinematicOdometryModelDefaultsToPerfect)
+{
+  const tl::expected<RobotConfig, std::string> config =
+      load_robot_config(fixture("simple_robot.yaml"), std::string(FIXTURE_DIR));
+  ASSERT_TRUE(config.has_value());
+  EXPECT_EQ(config->kinematic_model.odometry_model, OdometryModel::Perfect);
+}
+
+TEST(LoadRobotConfig, KinematicOdometryModelParsedInline)
+{
+  const tl::expected<RobotConfig, std::string> config =
+      load_robot_config(fixture("robot_odometry_inline_velocity.yaml"), std::string(FIXTURE_DIR));
+  ASSERT_TRUE(config.has_value());
+  EXPECT_EQ(config->kinematic_model.odometry_model, OdometryModel::Velocity);
+}
+
+TEST(LoadRobotConfig, KinematicOdometryModelParsedFromFile)
+{
+  const tl::expected<RobotConfig, std::string> config =
+      load_robot_config(fixture("robot_odometry_file_velocity.yaml"), std::string(FIXTURE_DIR));
+  ASSERT_TRUE(config.has_value());
+  EXPECT_EQ(config->kinematic_model.odometry_model, OdometryModel::Velocity);
+}
+
+TEST(LoadRobotConfig, InvalidOdometryModelReturnsError)
+{
+  const tl::expected<RobotConfig, std::string> config =
+      load_robot_config(fixture("robot_odometry_invalid.yaml"), std::string(FIXTURE_DIR));
+  ASSERT_FALSE(config.has_value());
+  EXPECT_NE(config.error().find("odometry_model"), std::string::npos);
+}
+
 TEST(LoadRobotConfig, LaserNoiseLoadedFromFile)
 {
   const tl::expected<RobotConfig, std::string> config =

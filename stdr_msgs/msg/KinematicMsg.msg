@@ -6,6 +6,11 @@
 # g is a coefficient that directly affects the angular speed
 
 string type
+# Selects how the simulated odometry belief pose relates to the true pose:
+# "perfect" (alphas below ignored, odom == truth) or "velocity" (alphas
+# below sampled into truth once per tick; odom is the noise-free
+# integration of the same command). Empty is treated as "perfect".
+string odometry_model
 float32 a_ux_ux
 float32 a_ux_uy
 float32 a_ux_w

@@ -100,6 +100,36 @@ TEST(YamlWriter, RoundTripPreservesValues)
   EXPECT_EQ(loaded->kinematic_model.type, "ideal");
 }
 
+TEST(YamlWriter, EmitsOdometryModel)
+{
+  stdr_msgs::msg::RobotMsg msg = make_test_robot();
+  msg.kinematic_model.odometry_model = "velocity";
+
+  const std::string path = "/tmp/test_robot_odometry_model.yaml";
+  const tl::expected<void, std::string> result = write_robot_yaml(msg, path);
+  ASSERT_TRUE(result.has_value()) << result.error();
+
+  const YAML::Node doc = YAML::LoadFile(path);
+  const YAML::Node specs = doc["robot"]["robot_specifications"];
+  ASSERT_TRUE(specs.IsSequence());
+  bool found = false;
+  for (const YAML::Node& item : specs)
+  {
+    if (item["kinematic"])
+    {
+      ASSERT_TRUE(item["kinematic"]["kinematic_specifications"]["odometry_model"].IsDefined());
+      EXPECT_EQ(item["kinematic"]["kinematic_specifications"]["odometry_model"].as<std::string>(), "velocity");
+      found = true;
+    }
+  }
+  EXPECT_TRUE(found) << "Expected a kinematic entry in the emitted YAML";
+
+  const tl::expected<stdr_msgs::msg::RobotMsg, std::string> loaded =
+      load_robot_msg(path, "/tmp", FIXTURE_DIR "/specifications");
+  ASSERT_TRUE(loaded.has_value()) << loaded.error();
+  EXPECT_EQ(loaded->kinematic_model.odometry_model, "velocity");
+}
+
 TEST(YamlWriter, RoundTripAllSensorTypes)
 {
   stdr_msgs::msg::RobotMsg original;

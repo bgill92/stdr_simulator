@@ -1,5 +1,7 @@
 #include <stdr_parser/yaml_writer.hpp>
 
+#include <stdr_simulation/odometry_model.hpp>
+
 #include <yaml-cpp/yaml.h>
 #include <geometry_msgs/msg/point.hpp>
 #include <geometry_msgs/msg/pose2_d.hpp>
@@ -201,6 +203,14 @@ void emit_kinematic(YAML::Emitter& out, const stdr_msgs::msg::KinematicMsg& kin)
   out << YAML::Key << "kinematic_specifications" << YAML::Value;
   out << YAML::BeginMap;
   out << YAML::Key << "kinematic_model" << YAML::Value << kin.type;
+  // An empty odometry_model means "perfect" (see KinematicMsg.msg) — emit the
+  // canonical string (from stdr_simulation, not a duplicated literal) rather
+  // than "" so the YAML always round-trips through the parser's validator,
+  // which requires a recognized odometry_model value.
+  out << YAML::Key << "odometry_model" << YAML::Value
+      << (kin.odometry_model.empty() ?
+              std::string(stdr_simulation::to_string(stdr_simulation::OdometryModel::Perfect)) :
+              kin.odometry_model);
   out << YAML::Key << "kinematic_parameters" << YAML::Value;
   out << YAML::BeginMap;
   out << YAML::Key << "a_ux_ux" << YAML::Value << kin.a_ux_ux;

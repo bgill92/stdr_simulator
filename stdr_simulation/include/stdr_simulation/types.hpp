@@ -52,6 +52,27 @@ struct Footprint
   double radius{ 0.0 };
 };
 
+/**
+ * Selects how the robot's odometry belief pose relates to its true pose.
+ *
+ * Perfect: the alpha noise coefficients below are ignored. The commanded
+ * velocity is integrated exactly once per tick and that same noise-free
+ * result is used for both the true pose and the odometry pose, so odom
+ * equals truth at every step. This is the historical, pre-belief-pose
+ * behaviour and remains the default.
+ *
+ * Velocity: Thrun et al. velocity-model noise (the alpha coefficients) is
+ * sampled once per tick and integrated into the TRUE pose; the odometry
+ * pose is the noise-free arc integration of that same commanded velocity.
+ * The odometry error is therefore exactly the perturbation drawn for that
+ * tick (see odometry-sim-highlights.md §5 for the design rationale).
+ */
+enum class OdometryModel
+{
+  Perfect,
+  Velocity
+};
+
 /** Kinematic model parameters encoding velocity coupling coefficients. */
 struct KinematicConfig
 {
@@ -68,6 +89,7 @@ struct KinematicConfig
   double a_g_ux{ 0.0 };
   double a_g_uy{ 0.0 };
   double a_g_w{ 0.0 };
+  OdometryModel odometry_model{ OdometryModel::Perfect };
 };
 
 /** Configuration for a laser range-finder sensor. */

@@ -96,6 +96,17 @@ TEST(YamlValidator, ErrorsIncludePathContext)
   EXPECT_TRUE(has_path) << "Expected at least one error to include a dotted path";
 }
 
+TEST(YamlValidator, OdometryModelKeyAccepted)
+{
+  // odometry_model is an optional key in kinematic_specifications (added
+  // alongside kinematic_model); a robot supplying it must still validate.
+  const YAML::Node doc = YAML::LoadFile(std::string{ kFixtureDir } + "/valid_robot_odometry_model.yaml");
+  const ValidationResult result = validate_yaml(doc["robot"], "robot", std::string{ kSpecsDir });
+
+  EXPECT_TRUE(result.valid);
+  EXPECT_THAT(result.errors, IsEmpty());
+}
+
 TEST(YamlValidator, EmptyNodeReturnsValid)
 {
   // An undefined node for an unknown type has no spec, so validation passes.
