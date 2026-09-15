@@ -37,6 +37,7 @@
 #include <cstdint>
 #include <functional>
 #include <future>
+#include <limits>
 #include <memory>
 #include <string>
 #include <thread>
@@ -304,9 +305,11 @@ TEST_F(Ros2BackendIntegrationTest, BackendObservesSpawnedRobotAndSensorData)
       backend_.poll_laser_events(laser_cursor, robot_name, laser_frame_id);
   ASSERT_FALSE(laser_result.scans.empty()) << "poll_laser_events returned no scans";
   // Robot starts at (2.0, 2.0) on a fully-free map with max_range = 5.0.
-  // No obstacle is within range, so all rays must return exactly max_range.
-  ASSERT_THAT(laser_result.scans[0].scan.ranges, ::testing::Each(::testing::FloatEq(5.0f)))
-      << "Expected all laser rays to return max_range on an obstacle-free map";
+  // No obstacle is within range, so every ray is a no-return beam: REP 117
+  // defines that as +infinity, not the configured max_range value.  FloatEq
+  // does not handle infinity, so use Eq instead.
+  ASSERT_THAT(laser_result.scans[0].scan.ranges, ::testing::Each(::testing::Eq(std::numeric_limits<float>::infinity())))
+      << "Expected all laser rays to return +infinity on an obstacle-free map";
 
   // ── Step 9: Verify poll_sonar_events drains at least one reading ─────────────
   std::uint64_t sonar_cursor = 0;

@@ -142,8 +142,14 @@ void SensorWindow::render_laser(const stdr_simulation::LaserScan& scan)
 
   for (std::size_t i = 0; i < n; ++i)
   {
-    const double angle = scan.angle_min + static_cast<double>(i) * scan.angle_increment;
     const double range = static_cast<double>(scan.ranges[i]);
+    // Open beams (no return, or too close) carry ±infinity per REP 117 and
+    // have no finite Cartesian point to plot.
+    if (!std::isfinite(range))
+    {
+      continue;
+    }
+    const double angle = scan.angle_min + static_cast<double>(i) * scan.angle_increment;
     xs.push_back(range * std::cos(angle));
     ys.push_back(range * std::sin(angle));
   }
@@ -153,7 +159,7 @@ void SensorWindow::render_laser(const stdr_simulation::LaserScan& scan)
     ImPlot::SetupAxes("X (m)", "Y (m)");
     ImPlot::SetupAxisLimits(ImAxis_X1, -scan.range_max, scan.range_max, ImGuiCond_Once);
     ImPlot::SetupAxisLimits(ImAxis_Y1, -scan.range_max, scan.range_max, ImGuiCond_Once);
-    ImPlot::PlotScatter("Points", xs.data(), ys.data(), static_cast<int>(n));
+    ImPlot::PlotScatter("Points", xs.data(), ys.data(), static_cast<int>(xs.size()));
     ImPlot::EndPlot();
   }
 }

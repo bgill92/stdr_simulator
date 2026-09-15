@@ -281,6 +281,11 @@ TEST_F(Ros2E2E, LaserRangesShrinkWhenDrivingTowardWall)
   // The center ray (index 90) looks straight ahead along +x — the boresight ray.
   const double range_before = scan_before->ranges[scan_before->ranges.size() / 2];
   EXPECT_GT(range_before, 0.0);
+  // The wall (~0.80 m) sits well within max_range (4.0 m), so this must be a
+  // real hit, not a no-return +infinity beam — otherwise the shrink assertion
+  // below (range_after < range_before - 0.05) would pass vacuously (inf - 0.05
+  // is still inf) without actually exercising the intended behavior.
+  ASSERT_TRUE(std::isfinite(range_before));
 
   // Drive forward at 0.3 m/s until the robot advances at least 0.1 m.
   // Allow 5 s to account for the ROS2 topic round-trip added by cmd_vel publishing.

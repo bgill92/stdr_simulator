@@ -57,6 +57,7 @@ LaserScan LaserSimulator::simulate(const Pose2D& sensor_pose_world, const LaserC
     const double origin_grid_y = (sensor_pose_world.y - map.origin.y) / map.resolution;
 
     double range = config.max_range;
+    bool hit = false;
 
     for (int step = 1; step <= max_steps; ++step)
     {
@@ -65,7 +66,7 @@ LaserScan LaserSimulator::simulate(const Pose2D& sensor_pose_world, const LaserC
 
       if (cell_x < 0 || cell_x >= map.width || cell_y < 0 || cell_y >= map.height)
       {
-        // Ray exited the map — treat as max range.
+        // Ray exited the map without hitting anything — no return.
         break;
       }
 
@@ -74,8 +75,18 @@ LaserScan LaserSimulator::simulate(const Pose2D& sensor_pose_world, const LaserC
       if (map.data[idx] > kOccupancyThreshold)
       {
         range = static_cast<double>(step) * map.resolution;
+        hit = true;
         break;
       }
+    }
+
+    // No obstacle hit: return +infinity directly without noise or clamping.
+    // There is no physical return for an open beam, so there is nothing to be
+    // noisy, and REP 117 defines "no return" as +Inf.
+    if (!hit)
+    {
+      scan.ranges.push_back(std::numeric_limits<float>::infinity());
+      continue;
     }
 
     if (apply_noise)
@@ -83,15 +94,16 @@ LaserScan LaserSimulator::simulate(const Pose2D& sensor_pose_world, const LaserC
       range += noise_dist(rng_);
     }
 
-    // Clamp to sensor limits; use signed infinities to signal out-of-bounds.
+    // Clamp to sensor limits; use signed infinities to signal out-of-bounds
+    // per REP 117 (too close = -Inf, beyond max range = +Inf).
     float final_range{};
-    if (range > config.max_range)
-    {
-      final_range = std::numeric_limits<float>::infinity();
-    }
-    else if (range < config.min_range)
+    if (range < config.min_range)
     {
       final_range = -std::numeric_limits<float>::infinity();
+    }
+    else if (range >= config.max_range)
+    {
+      final_range = std::numeric_limits<float>::infinity();
     }
     else
     {

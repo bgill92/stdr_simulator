@@ -1,4 +1,4 @@
-[project]
+[workspace]
 name = "stdr_simulator"
 description = "A simple, flexible and scalable 2D multi-robot simulator — ROS2 Jazzy port"
 version = "1.0.0"

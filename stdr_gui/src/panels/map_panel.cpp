@@ -441,8 +441,14 @@ void MapPanel::render_sensor_overlays(const SimulationSnapshot& snapshot,
 
       for (std::size_t i = 0; i < scan.ranges.size(); ++i)
       {
-        const double angle = sensor_world.theta + scan.angle_min + static_cast<double>(i) * scan.angle_increment;
         const double range = static_cast<double>(scan.ranges[i]);
+        // Open beams (no return, or too close) carry ±infinity per REP 117
+        // and have no finite endpoint to draw.
+        if (!std::isfinite(range))
+        {
+          continue;
+        }
+        const double angle = sensor_world.theta + scan.angle_min + static_cast<double>(i) * scan.angle_increment;
         const double end_wx = sensor_world.x + range * std::cos(angle);
         const double end_wy = sensor_world.y + range * std::sin(angle);
 
@@ -469,6 +475,12 @@ void MapPanel::render_sensor_overlays(const SimulationSnapshot& snapshot,
       const ImVec2 sensor_screen{ content_origin_.x + sensor_sp.x, content_origin_.y + sensor_sp.y };
 
       const double range = scan.range;
+      // Open or too-close readings carry ±infinity per REP 117 and have no
+      // finite cone to draw.
+      if (!std::isfinite(range))
+      {
+        continue;
+      }
       const double half_cone = cfg.cone_angle * 0.5;
 
       const double left_angle = sensor_world.theta + half_cone;
