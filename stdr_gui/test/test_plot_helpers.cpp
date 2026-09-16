@@ -57,6 +57,10 @@ public:
   {
     return {};
   }
+  [[nodiscard]] stdr_simulation::Pose2D odom_pose(const RobotId& /*robot_id*/) const override
+  {
+    return {};
+  }
   [[nodiscard]] stdr_simulation::Twist2D twist(const RobotId& /*robot_id*/) const override
   {
     return {};

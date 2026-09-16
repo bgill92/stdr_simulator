@@ -54,6 +54,15 @@ std::string polygon_robot_path()
   return std::string(STDR_TEST_DIR) + "/test_polygon_robot.yaml";
 }
 
+// test_velocity_noisy_robot.yaml uses odometry_model: velocity with nonzero
+// a_ux_ux / a_w_w alphas, so update() (truth) draws Thrun velocity-model
+// noise while integrate() (odom belief) stays noise-free — the two poses
+// diverge under commanded motion.
+std::string velocity_noisy_robot_path()
+{
+  return std::string(STDR_TEST_DIR) + "/test_velocity_noisy_robot.yaml";
+}
+
 // --- Error cases first ---
 
 TEST(StandaloneBackend, LoadMapFailsOnMissingFile)
@@ -180,6 +189,26 @@ TEST(StandaloneBackend, SetRobotPoseUpdatesPose)
   EXPECT_DOUBLE_EQ(snapshot->robots[0].pose.y, 3.0);
 }
 
+// A teleport is not something the robot itself perceives, so it resets the
+// odometry belief to match the new truth pose rather than leaving it behind.
+TEST(StandaloneBackend, TeleportResetsOdomPose)
+{
+  StandaloneBackend backend;
+  std::ignore = backend.load_map(map_path());
+  const std::string name = backend.spawn_robot(robot_path(), { 1.0, 1.0, 0.0 }).value();
+
+  const stdr_simulation::Pose2D new_pose{ 2.0, 3.0, 1.57 };
+  backend.set_robot_pose(name, new_pose);
+
+  const std::optional<stdr_simulation::Pose2D> pose = backend.pose(name);
+  const std::optional<stdr_simulation::Pose2D> odom = backend.odom_pose(name);
+  ASSERT_TRUE(pose.has_value());
+  ASSERT_TRUE(odom.has_value());
+  EXPECT_DOUBLE_EQ(odom->x, pose->x);
+  EXPECT_DOUBLE_EQ(odom->y, pose->y);
+  EXPECT_DOUBLE_EQ(odom->theta, pose->theta);
+}
+
 // --- Velocity commands ---
 
 TEST(StandaloneBackend, SetCmdVelMovesRobot)
@@ -200,6 +229,50 @@ TEST(StandaloneBackend, SetCmdVelMovesRobot)
   ASSERT_THAT(snapshot->robots, SizeIs(1));
   // At least one integration step at 0.5 m/s * 0.1 s = 0.05 m should have occurred.
   EXPECT_GT(snapshot->robots[0].pose.x, 0.01);
+}
+
+// khepera2.yaml does not override odometry_model, so it defaults to Perfect:
+// the truth pose and the odom belief integrate the same noise-free command
+// and must stay equal after driving.
+TEST(StandaloneBackend, OdomPoseEqualsPoseUnderPerfectModel)
+{
+  StandaloneBackend backend;
+  const std::string name = backend.spawn_robot(robot_path(), { 0.0, 0.0, 0.0 }).value();
+
+  backend.set_cmd_vel(name, stdr_simulation::Twist2D{ .linear_x = 0.5, .linear_y = 0.0, .angular_z = 0.3 });
+
+  backend.start();
+  std::this_thread::sleep_for(std::chrono::milliseconds(250));
+  backend.pause();
+
+  const std::optional<stdr_simulation::Pose2D> pose = backend.pose(name);
+  const std::optional<stdr_simulation::Pose2D> odom = backend.odom_pose(name);
+  ASSERT_TRUE(pose.has_value());
+  ASSERT_TRUE(odom.has_value());
+  EXPECT_DOUBLE_EQ(odom->x, pose->x);
+  EXPECT_DOUBLE_EQ(odom->y, pose->y);
+  EXPECT_DOUBLE_EQ(odom->theta, pose->theta);
+}
+
+// test_velocity_noisy_robot.yaml sets odometry_model: velocity with nonzero
+// alphas, so the truth pose accumulates Thrun velocity-model noise while the
+// odom belief keeps integrating the command exactly — the two must diverge.
+TEST(StandaloneBackend, OdomPoseDivergesUnderVelocityModel)
+{
+  StandaloneBackend backend;
+  const std::string name = backend.spawn_robot(velocity_noisy_robot_path(), { 0.0, 0.0, 0.0 }).value();
+
+  backend.set_cmd_vel(name, stdr_simulation::Twist2D{ .linear_x = 0.5, .linear_y = 0.0, .angular_z = 0.3 });
+
+  backend.start();
+  std::this_thread::sleep_for(std::chrono::milliseconds(500));
+  backend.pause();
+
+  const std::optional<stdr_simulation::Pose2D> pose = backend.pose(name);
+  const std::optional<stdr_simulation::Pose2D> odom = backend.odom_pose(name);
+  ASSERT_TRUE(pose.has_value());
+  ASSERT_TRUE(odom.has_value());
+  EXPECT_TRUE(pose->x != odom->x || pose->y != odom->y || pose->theta != odom->theta);
 }
 
 // --- Messages ---
@@ -302,6 +375,12 @@ TEST(StandaloneBackendIntrospection, EmptyWorldPoseForMissingRobotIsNullopt)
 {
   StandaloneBackend backend;
   EXPECT_EQ(backend.pose("does_not_exist"), std::nullopt);
+}
+
+TEST(StandaloneBackendIntrospection, EmptyWorldOdomPoseForMissingRobotIsNullopt)
+{
+  StandaloneBackend backend;
+  EXPECT_EQ(backend.odom_pose("does_not_exist"), std::nullopt);
 }
 
 TEST(StandaloneBackendIntrospection, EmptyWorldTwistForMissingRobotIsNullopt)

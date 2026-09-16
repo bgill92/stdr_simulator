@@ -76,6 +76,7 @@ public:
   [[nodiscard]] std::vector<std::string> laser_sensors(const std::string& robot_id) const override;
   [[nodiscard]] std::vector<std::string> sonar_sensors(const std::string& robot_id) const override;
   [[nodiscard]] std::optional<stdr_simulation::Pose2D> pose(const std::string& robot_id) const override;
+  [[nodiscard]] std::optional<stdr_simulation::Pose2D> odom_pose(const std::string& robot_id) const override;
   [[nodiscard]] std::optional<stdr_simulation::Twist2D> twist(const std::string& robot_id) const override;
   [[nodiscard]] std::optional<bool> collided(const std::string& robot_id) const override;
   [[nodiscard]] std::vector<stdr_simulation::Point2D> footprint(const std::string& robot_id) const override;
@@ -121,6 +122,7 @@ private:
   void on_map(const nav_msgs::msg::OccupancyGrid::SharedPtr msg);
   void on_active_robots(const stdr_msgs::msg::RobotIndexedVectorMsg::SharedPtr msg);
   void on_ground_truth(const std::string& robot_name, const nav_msgs::msg::Odometry::SharedPtr msg);
+  void on_odom(const std::string& robot_name, const nav_msgs::msg::Odometry::SharedPtr msg);
   void on_laser(const std::string& robot_name, const std::string& frame_id,
                 const sensor_msgs::msg::LaserScan::SharedPtr msg);
   void on_sonar(const std::string& robot_name, const std::string& frame_id,
@@ -155,12 +157,19 @@ private:
   // Most-recently received ground-truth pose per robot, keyed by robot name.
   std::unordered_map<std::string, stdr_simulation::Pose2D> latest_pose_;
 
+  // Most-recently received odometry belief pose per robot, keyed by robot name.
+  std::unordered_map<std::string, stdr_simulation::Pose2D> latest_odom_pose_;
+
   // Most-recently commanded velocity per robot, keyed by robot name.
   // Updated by set_cmd_vel(); cleaned up when a robot disappears in on_active_robots().
   std::unordered_map<std::string, stdr_simulation::Twist2D> latest_cmd_vel_;
 
   // Per-robot ground-truth subscriptions, created/destroyed as robots appear/vanish.
   std::unordered_map<std::string, rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr> ground_truth_subs_;
+
+  // Per-robot odometry-belief subscriptions, mirroring ground_truth_subs_'s
+  // create/erase lifecycle but reading "<robot>/odom" instead of "<robot>/ground_truth".
+  std::unordered_map<std::string, rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr> odom_subs_;
 
   // Per-(robot, sensor) laser subscriptions, keyed as "robot_name/frame_id".
   // Created when a new robot appears in on_active_robots(); destroyed when the

@@ -134,6 +134,20 @@ TEST(SimView, PoseReturnsSpawnPose)
   EXPECT_DOUBLE_EQ(p.y, 3.0);
 }
 
+TEST(SimView, OdomPoseForwardsToBackend)
+{
+  stdr_standalone::StandaloneBackend backend;
+  const std::string name = backend.spawn_robot(robot_path(), { 2.5, 3.0, 0.0 }).value();
+
+  std::unordered_map<std::string, std::uint64_t> lc;
+  std::unordered_map<std::string, std::uint64_t> sc;
+  const std::unique_ptr<SimView> view = make_view(backend, lc, sc);
+
+  const stdr_simulation::Pose2D p = view->odom_pose(name);
+  EXPECT_DOUBLE_EQ(p.x, 2.5);
+  EXPECT_DOUBLE_EQ(p.y, 3.0);
+}
+
 TEST(SimView, PoseReturnsZeroForMissingRobot)
 {
   stdr_standalone::StandaloneBackend backend;

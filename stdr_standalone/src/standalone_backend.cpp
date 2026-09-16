@@ -562,6 +562,17 @@ std::optional<stdr_simulation::Pose2D> StandaloneBackend::pose(const std::string
   return robot->pose;
 }
 
+std::optional<stdr_simulation::Pose2D> StandaloneBackend::odom_pose(const std::string& robot_id) const
+{
+  const std::lock_guard<std::mutex> lock(sim_mutex_);
+  const stdr_simulation::world::RobotState* robot = world_model_.get_robot(robot_id);
+  if (robot == nullptr)
+  {
+    return std::nullopt;
+  }
+  return robot->odom_pose;
+}
+
 std::optional<stdr_simulation::Twist2D> StandaloneBackend::twist(const std::string& robot_id) const
 {
   const std::lock_guard<std::mutex> lock(sim_mutex_);

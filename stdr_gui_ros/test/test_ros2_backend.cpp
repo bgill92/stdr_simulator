@@ -235,6 +235,7 @@ TEST_F(Ros2BackendTest, UnknownRobotReturnsEmpty)
   EXPECT_THAT(backend_.sonar_sensors("nope"), IsEmpty());
   EXPECT_THAT(backend_.footprint("nope"), IsEmpty());
   EXPECT_FALSE(backend_.pose("nope").has_value());
+  EXPECT_FALSE(backend_.odom_pose("nope").has_value());
   EXPECT_FALSE(backend_.twist("nope").has_value());
   EXPECT_FALSE(backend_.collided("nope").has_value());
 }
@@ -357,6 +358,44 @@ TEST_F(Ros2BackendTest, PoseReflectsLatestGroundTruth)
   ASSERT_TRUE(received) << "Ground-truth message was not delivered in time.";
 
   const std::optional<stdr_simulation::Pose2D> p = backend_.pose("robot0");
+  ASSERT_TRUE(p.has_value());
+  EXPECT_DOUBLE_EQ(p->x, 1.5);
+  EXPECT_DOUBLE_EQ(p->y, 2.5);
+  EXPECT_THAT(p->theta, DoubleNear(0.7, 1e-6));
+}
+
+TEST_F(Ros2BackendTest, OdomPoseReflectsLatestOdom)
+{
+  rclcpp::executors::SingleThreadedExecutor executor;
+  executor.add_node(pub_node_);
+  executor.add_node(node_);
+
+  stdr_simulation::RobotConfig cfg;
+  publish_active_robots({ { "robot0", cfg } }, executor);
+
+  // Publish an odometry message to the robot's odom topic.
+  rclcpp::Publisher<nav_msgs::msg::Odometry>::SharedPtr odom_pub =
+      pub_node_->create_publisher<nav_msgs::msg::Odometry>("robot0/odom", 10);
+
+  nav_msgs::msg::Odometry odom_msg;
+  odom_msg.pose.pose.position.x = 1.5;
+  odom_msg.pose.pose.position.y = 2.5;
+  // Build a quaternion for yaw = 0.7 rad.
+  tf2::Quaternion q;
+  q.setRPY(0.0, 0.0, 0.7);
+  odom_msg.pose.pose.orientation.x = q.x();
+  odom_msg.pose.pose.orientation.y = q.y();
+  odom_msg.pose.pose.orientation.z = q.z();
+  odom_msg.pose.pose.orientation.w = q.w();
+  odom_pub->publish(odom_msg);
+
+  const bool received = spin_until(executor, [&] {
+    const std::optional<stdr_simulation::Pose2D> p = backend_.odom_pose("robot0");
+    return p.has_value() && std::abs(p->x - 1.5) < 1e-9;
+  });
+  ASSERT_TRUE(received) << "Odometry message was not delivered in time.";
+
+  const std::optional<stdr_simulation::Pose2D> p = backend_.odom_pose("robot0");
   ASSERT_TRUE(p.has_value());
   EXPECT_DOUBLE_EQ(p->x, 1.5);
   EXPECT_DOUBLE_EQ(p->y, 2.5);
