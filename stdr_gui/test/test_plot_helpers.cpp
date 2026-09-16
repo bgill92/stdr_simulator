@@ -144,6 +144,57 @@ TEST(PlotHelpers, MeterMillimeterRoundTrip)
 }
 
 // ---------------------------------------------------------------------------
+// wrapped_angle_diff
+// ---------------------------------------------------------------------------
+
+TEST(PlotHelpers, WrappedAngleDiffZeroWhenEqual)
+{
+  EXPECT_NEAR(wrapped_angle_diff(0.5, 0.5), 0.0, 1e-10);
+}
+
+TEST(PlotHelpers, WrappedAngleDiffPositiveWrap)
+{
+  // 0.9*pi - (-0.9*pi) = 1.8*pi, which wraps to 1.8*pi - 2*pi = -0.2*pi.
+  const double result = wrapped_angle_diff(0.9 * std::numbers::pi, -0.9 * std::numbers::pi);
+  EXPECT_NEAR(result, -0.2 * std::numbers::pi, 1e-10);
+}
+
+TEST(PlotHelpers, WrappedAngleDiffNegativeWrap)
+{
+  // -0.9*pi - 0.9*pi = -1.8*pi, which wraps to -1.8*pi + 2*pi = 0.2*pi.
+  const double result = wrapped_angle_diff(-0.9 * std::numbers::pi, 0.9 * std::numbers::pi);
+  EXPECT_NEAR(result, 0.2 * std::numbers::pi, 1e-10);
+}
+
+TEST(PlotHelpers, WrappedAngleDiffFullTurnIsZero)
+{
+  // A difference of exactly 2*pi must wrap back to 0, not stay at 2*pi.
+  const double result = wrapped_angle_diff(2.0 * std::numbers::pi, 0.0);
+  EXPECT_NEAR(result, 0.0, 1e-10);
+}
+
+TEST(PlotHelpers, WrappedAngleDiffExactlyPositivePi)
+{
+  // The documented convention is (-pi, pi], so a diff of exactly +pi should
+  // land on the positive boundary. On this toolchain's libm,
+  // atan2(sin(pi), cos(pi)) returns std::numbers::pi bit-for-bit; the
+  // tolerance is only a defensive margin in case another libm does not
+  // represent sin(pi) as exactly 0.
+  const double result = wrapped_angle_diff(std::numbers::pi, 0.0);
+  EXPECT_NEAR(result, std::numbers::pi, 1e-10);
+}
+
+TEST(PlotHelpers, WrappedAngleDiffExactlyNegativePi)
+{
+  // Symmetric to the +pi case: on this toolchain's libm,
+  // atan2(sin(-pi), cos(-pi)) returns -std::numbers::pi bit-for-bit. -pi
+  // itself is technically excluded by the (-pi, pi] convention, but this
+  // documents the observed behaviour rather than the theoretical boundary.
+  const double result = wrapped_angle_diff(-std::numbers::pi, 0.0);
+  EXPECT_NEAR(result, -std::numbers::pi, 1e-10);
+}
+
+// ---------------------------------------------------------------------------
 // Coordinate transforms
 // ---------------------------------------------------------------------------
 

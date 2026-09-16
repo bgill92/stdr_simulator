@@ -5,6 +5,12 @@
 namespace stdr::plot::helpers
 {
 
+double wrapped_angle_diff(double a, double b) noexcept
+{
+  const double diff = a - b;
+  return std::atan2(std::sin(diff), std::cos(diff));
+}
+
 stdr_simulation::Pose2D map_to_robot(const stdr_simulation::Pose2D& p_map,
                                      const stdr_simulation::Pose2D& robot_in_map) noexcept
 {

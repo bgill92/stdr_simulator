@@ -416,6 +416,22 @@ TEST(PlotterRegistry, WholeArchiveLinkActuallyPullsPoseErrorPlotter)
   EXPECT_TRUE(found) << "PoseErrorPlotter not found — WHOLE_ARCHIVE link may have been removed";
 }
 
+TEST(PlotterRegistry, WholeArchiveLinkPullsOdometryTracePlotter)
+{
+  // Same guard as above, for the Odometry Trace plotter (odometry_trace_plotter.cpp).
+  const std::vector<std::unique_ptr<Plotter>> plotters = PlotterRegistry::instance().instantiate_all();
+  bool found = false;
+  for (const std::unique_ptr<Plotter>& p : plotters)
+  {
+    if (p->name() == "Odometry Trace")
+    {
+      found = true;
+      break;
+    }
+  }
+  EXPECT_TRUE(found) << "OdometryTracePlotter not found — WHOLE_ARCHIVE link may have been removed";
+}
+
 // --- SimIntrospection ---
 
 TEST(SimIntrospection, WrapperDelegatesNumRobots)

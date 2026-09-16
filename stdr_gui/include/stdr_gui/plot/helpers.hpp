@@ -5,6 +5,7 @@
  *  This header is the single place where plotter plugins can import:
  *  - Iteration helpers (for_each_robot, for_each_laser, for_each_sonar)
  *  - Unit conversions (rad_to_deg, deg_to_rad, m_to_mm, mm_to_m)
+ *  - Angle utilities (wrapped_angle_diff)
  *  - Coordinate frame transforms (map_to_robot, robot_to_map)
  *  - Time-aligned sampling gating (should_sample)
  *
@@ -46,6 +47,17 @@ namespace stdr::plot::helpers
 {
   return mm * 0.001;
 }
+
+// ---------------------------------------------------------------------------
+// Angle utilities — non-constexpr (require std::atan2/sin/cos)
+// ---------------------------------------------------------------------------
+
+/** @brief Return the signed difference `a - b` normalised to (-pi, pi].
+ *
+ *  Uses the atan2(sin, cos) idiom already used for heading wraparound in
+ *  ideal_motion_model.cpp and omni_motion_model.cpp, so plotters do not need
+ *  to reproduce it locally at each call site. */
+[[nodiscard]] double wrapped_angle_diff(double a, double b) noexcept;
 
 // ---------------------------------------------------------------------------
 // Coordinate frame transforms — non-constexpr (require std::cos/sin)

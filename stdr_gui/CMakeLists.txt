@@ -21,10 +21,12 @@ add_library(
   src/panels/sensor_window.cpp
   src/panels/toolbar.cpp
   src/plot/helpers.cpp
+  src/plot/map_texture.cpp
   src/plot/plot_panel.cpp
   src/plot/plot_sink_view.cpp
   src/plot/registry.cpp
-  src/plot/sim_view.cpp)
+  src/plot/sim_view.cpp
+  src/plot/trail.cpp)
 
 target_compile_features(${PROJECT_NAME} PUBLIC cxx_std_20)
 set_target_properties(${PROJECT_NAME} PROPERTIES CXX_EXTENSIONS OFF)
@@ -110,6 +112,10 @@ if(BUILD_TESTING)
   # Plot helper utilities unit tests.
   ament_add_gtest(test_plot_helpers test/test_plot_helpers.cpp)
   target_link_libraries(test_plot_helpers ${PROJECT_NAME} GTest::gmock)
+
+  # Trail (breadcrumb) helper unit tests.
+  ament_add_gtest(test_trail test/test_trail.cpp)
+  target_link_libraries(test_trail ${PROJECT_NAME} GTest::gmock)
 
   # PlotPanel state-machine tests — no ImGui context required. Links stdr_gui
   # only (no WHOLE_ARCHIVE needed since test plotter types are defined inline in
