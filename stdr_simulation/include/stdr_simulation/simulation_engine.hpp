@@ -209,9 +209,35 @@ public:
    */
   [[nodiscard]] const std::vector<StreamEvent>& last_events(const std::string& robot_name) const;
 
+  /**
+   * @brief Reset a robot's cached sensor data back to its freshly-spawned state.
+   *
+   * Callers that teleport a robot externally (e.g. StandaloneBackend::reset())
+   * need this because sensor_data_ is only recomputed on the first step() after
+   * the teleport: without clearing it, get_sensor_data() would keep reporting
+   * the last scans and collided flag from the pre-reset pose until then.
+   *
+   * schedulers_ and last_events_ are left untouched; this only clears the
+   * measurement cache.  If the robot exists in the world but has no
+   * sensor_data_ entry yet, this creates one, matching the lazy-creation
+   * behavior in step().
+   *
+   * @param robot_name Target robot name.  No-op if unknown to the world model.
+   */
+  void clear_sensor_data(const std::string& robot_name);
+
 private:
   /** Register all sensor streams for a robot into its scheduler. */
   void register_sensor_streams(const std::string& robot_name, const RobotConfig& config);
+
+  /**
+   * @brief Build a RobotSensorData with per-sensor vectors pre-sized from config.
+   *
+   * Shared by spawn_robot(), the newly-discovered-robot path in step(), and
+   * clear_sensor_data() so event.index is always a valid slot into the
+   * returned vectors.
+   */
+  [[nodiscard]] static RobotSensorData make_empty_sensor_data(const RobotConfig& config);
 
   world::WorldModel& world_;
   collision::CollisionChecker collision_checker_;

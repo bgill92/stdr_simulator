@@ -121,11 +121,12 @@ void StandaloneBackend::reset()
     {
       // Teleport back to spawn: set_robot_pose also collapses the odometry
       // belief onto ground truth, exactly as at spawn.
-      // The engine's cached per-robot sensor data (last scans, collided flag)
-      // is intentionally left alone: it is recomputed on the first step() after
-      // Start, and SimulationEngine exposes no API to clear it.
       world_model_.set_robot_pose(robot.name, robot.config.initial_pose);
       world_model_.set_robot_cmd_vel(robot.name, {});
+
+      // Without this, the cached scans and collided flag would keep
+      // describing the pre-reset pose until the next step() repopulates them.
+      engine_.clear_sensor_data(robot.name);
     }
     elapsed_time_ = 0.0;
   }
