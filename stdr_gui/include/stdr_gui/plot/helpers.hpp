@@ -104,6 +104,10 @@ namespace stdr::plot::helpers
  *  drives `on_sample` faster than the plotter's `sample_period()` — for
  *  example during the first frame or after a resume.
  *
+ *  A `now_sim_time` earlier than `last_sample_sim_time` (simulation reset)
+ *  fires immediately and rebases, instead of stalling until the clock catches
+ *  back up to where it left off.
+ *
  *  The last-sample time is set to `now_sim_time` on each fire (simple reset,
  *  not drift-free); for drift-free sampling, callers can update
  *  `last + period_seconds` instead. */

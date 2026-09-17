@@ -26,13 +26,24 @@ public:
   void render(SimulatorBackend& backend, FileDialog& file_dialog, const SimulationSnapshot& snapshot,
               const std::function<void()>& view_menu_extra = nullptr);
 
+  /** @brief Register a callback fired after the backend has been reset.
+   *
+   *  Lets the owning app propagate the reset to components the toolbar does
+   *  not know about (e.g. the plot panel), without the toolbar depending on
+   *  those components directly. */
+  void set_on_reset(std::function<void()> callback);
+
 private:
   void render_menu_bar(SimulatorBackend& backend, FileDialog& file_dialog, const std::function<void()>& view_menu_extra);
   void render_control_bar(SimulatorBackend& backend);
   void render_status_bar(const SimulationSnapshot& snapshot, SimulatorBackend& backend);
 
+  // Reset the backend and notify on_reset_, if set.
+  void reset_simulation(SimulatorBackend& backend);
+
   double speed_multiplier_{ 1.0 };
   std::vector<std::string> messages_;
+  std::function<void()> on_reset_;
 };
 
 /** @brief Format elapsed seconds as HH:MM:SS.cs (centiseconds). */

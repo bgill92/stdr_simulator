@@ -61,6 +61,16 @@ public:
     }
   }
 
+  void on_reset(stdr::plot::SimView& /*sim*/) override
+  {
+    // Drop both trails and the teleport-detector's last pose so the next
+    // on_sample does not draw a line from the pre-reset pose to spawn, nor
+    // mistake the reset teleport itself for a drag needing another clear.
+    truth_trail_.clear();
+    odom_trail_.clear();
+    last_truth_.reset();
+  }
+
   void on_sample(stdr::plot::SimView& sim, stdr::plot::PlotSink& out) override
   {
     // on_init may fire before any robot is spawned (PlotPanel is constructed

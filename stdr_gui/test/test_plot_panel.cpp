@@ -238,9 +238,20 @@ public:
     ++resume_count;
   }
 
-  void on_sample(SimView& /*sim*/, PlotSink& /*out*/) override
+  void on_reset(SimView& /*sim*/) override
+  {
+    ++reset_count;
+  }
+
+  void on_sample(SimView& /*sim*/, PlotSink& out) override
   {
     ++sample_count;
+
+    // Write a sample and stash the sink so NotifyReset tests can build a
+    // PlotView straight from it — the "next render" would read from exactly
+    // this sink, and PlotView needs no ImGui context to inspect.
+    out.scalar("x", 0.0, 1.0);
+    last_sink = &out;
   }
 
   void on_render(const PlotView& /*data*/) override
@@ -251,19 +262,25 @@ public:
   // the panel rebuilds the plotter on remove.
   static int pause_count;
   static int resume_count;
+  static int reset_count;
   static int sample_count;
+  static PlotSink* last_sink;
 };
 
 int LifecyclePlotter::pause_count = 0;
 int LifecyclePlotter::resume_count = 0;
+int LifecyclePlotter::reset_count = 0;
 int LifecyclePlotter::sample_count = 0;
+PlotSink* LifecyclePlotter::last_sink = nullptr;
 
 // Reset lifecycle counters between tests.
 void reset_lifecycle_state()
 {
   LifecyclePlotter::pause_count = 0;
   LifecyclePlotter::resume_count = 0;
+  LifecyclePlotter::reset_count = 0;
   LifecyclePlotter::sample_count = 0;
+  LifecyclePlotter::last_sink = nullptr;
 }
 
 // ---------------------------------------------------------------------------
@@ -597,6 +614,69 @@ TEST_F(PlotPanelLifecycleHookTest, UnpauseSlotIsIdempotent)
   EXPECT_EQ(LifecyclePlotter::resume_count, 0);
   ASSERT_THAT(panel.slot_status(), ::testing::SizeIs(1));
   EXPECT_FALSE(panel.slot_status()[0].paused);
+}
+
+// ---------------------------------------------------------------------------
+// notify_reset() / on_reset lifecycle hook tests
+// ---------------------------------------------------------------------------
+
+TEST_F(PlotPanelLifecycleHookTest, NotifyResetCallsOnResetAndClearsSink)
+{
+  reset_fake_state();
+  stdr_gui::StubBackend backend;
+  PlotterRegistry reg = make_registry<LifecyclePlotter>();
+  PlotPanel panel(backend, reg);
+
+  // Pump a sample so the sink has data before the reset.
+  panel.pump_sample();
+  ASSERT_NE(LifecyclePlotter::last_sink, nullptr);
+  const PlotView before(*LifecyclePlotter::last_sink);
+  ASSERT_THAT(before.scalar("x"), ::testing::SizeIs(1));
+
+  panel.notify_reset();
+
+  EXPECT_EQ(LifecyclePlotter::reset_count, 1);
+
+  // The next render would build its PlotView from the same sink — verify it
+  // now reads empty rather than driving a full ImGui frame.
+  const PlotView after(*LifecyclePlotter::last_sink);
+  EXPECT_THAT(after.scalar("x"), ::testing::IsEmpty());
+}
+
+TEST_F(PlotPanelLifecycleHookTest, NotifyResetFiresOnResetForPausedSlot)
+{
+  reset_fake_state();
+  stdr_gui::StubBackend backend;
+  PlotterRegistry reg = make_registry<LifecyclePlotter>();
+  PlotPanel panel(backend, reg);
+
+  panel.pause_slot(0);
+  ASSERT_THAT(panel.slot_status(), ::testing::SizeIs(1));
+  ASSERT_TRUE(panel.slot_status()[0].paused);
+
+  panel.notify_reset();
+
+  EXPECT_EQ(LifecyclePlotter::reset_count, 1);
+  // notify_reset() must not itself change the paused flag — the slot stays
+  // paused until the user explicitly unpauses it.
+  EXPECT_TRUE(panel.slot_status()[0].paused);
+}
+
+TEST_F(PlotPanelLifecycleHookTest, NotifyResetClearsSlotError)
+{
+  reset_fake_state();
+  g_fake_state[0].throw_on_sample = true;
+  stdr_gui::StubBackend backend;
+  PlotterRegistry reg = make_registry<FakePlotter<0>>();
+  PlotPanel panel(backend, reg);
+
+  panel.pump_sample();
+  ASSERT_THAT(panel.slot_status(), ::testing::SizeIs(1));
+  ASSERT_FALSE(panel.slot_status()[0].error.empty());
+
+  panel.notify_reset();
+
+  EXPECT_TRUE(panel.slot_status()[0].error.empty());
 }
 
 }  // namespace

@@ -98,6 +98,18 @@ TEST(PlotSink, ChannelTemplateAllocatesTypedStorage)
   EXPECT_EQ(ch->data[1], 20);
 }
 
+TEST(PlotSink, ClearDropsAllChannels)
+{
+  PlotSink sink;
+  sink.scalar("scalars", 1.0, 99.0);
+  sink.point("points", 2.0, 3.0);
+
+  sink.clear();
+
+  EXPECT_EQ(sink.find_channel<TimedScalar>("scalars"), nullptr);
+  EXPECT_EQ(sink.find_channel<Point2>("points"), nullptr);
+}
+
 TEST(PlotSink, FindChannelReturnsNullptrForMissingChannel)
 {
   const PlotSink sink;

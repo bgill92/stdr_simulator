@@ -37,6 +37,20 @@ void Toolbar::render(SimulatorBackend& backend, FileDialog& file_dialog, const S
   render_status_bar(snapshot, backend);
 }
 
+void Toolbar::set_on_reset(std::function<void()> callback)
+{
+  on_reset_ = std::move(callback);
+}
+
+void Toolbar::reset_simulation(SimulatorBackend& backend)
+{
+  backend.reset();
+  if (on_reset_)
+  {
+    on_reset_();
+  }
+}
+
 void Toolbar::render_menu_bar(SimulatorBackend& backend, FileDialog& file_dialog,
                               const std::function<void()>& view_menu_extra)
 {
@@ -75,7 +89,7 @@ void Toolbar::render_menu_bar(SimulatorBackend& backend, FileDialog& file_dialog
     }
     if (ImGui::MenuItem("Reset"))
     {
-      backend.reset();
+      reset_simulation(backend);
     }
     ImGui::Separator();
     if (ImGui::MenuItem("Speed 0.5x"))
@@ -186,7 +200,7 @@ void Toolbar::render_control_bar(SimulatorBackend& backend)
   ImGui::SameLine();
   if (ImGui::Button("Reset"))
   {
-    backend.reset();
+    reset_simulation(backend);
   }
   ImGui::End();
   ImGui::PopStyleVar();

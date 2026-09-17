@@ -271,6 +271,19 @@ TEST(PlotHelpers, ShouldSampleFiresAtPeriod)
   EXPECT_DOUBLE_EQ(last_t, 0.1);
 }
 
+TEST(PlotHelpers, ShouldSampleFiresWhenTimeGoesBackwards)
+{
+  // Simulation reset: now_sim_time (0.5) is earlier than last_sample_sim_time
+  // (10.0).  Without the backwards check this would stall until sim_time
+  // caught back up past 10.0 + period; instead it must fire immediately and
+  // rebase last_sample_sim_time to the new, earlier time.
+  constexpr double kPeriod = 1.0;
+  double last_t = 10.0;
+
+  EXPECT_TRUE(should_sample(0.5, last_t, kPeriod));
+  EXPECT_DOUBLE_EQ(last_t, 0.5);
+}
+
 // ---------------------------------------------------------------------------
 // Iteration helpers
 // ---------------------------------------------------------------------------
