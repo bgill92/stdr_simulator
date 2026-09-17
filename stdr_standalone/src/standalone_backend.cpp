@@ -14,12 +14,31 @@
 #include <cmath>
 #include <cstdlib>
 #include <filesystem>
+#include <format>
 #include <thread>
 
 namespace stdr_standalone
 {
 
-StandaloneBackend::StandaloneBackend() : engine_(world_model_, stdr_gui::kDefaultStepDt)
+namespace
+{
+
+// Wall-clock pacing period for the sim loop, independent of step_dt. A small
+// fixed period keeps pose updates arriving frequently enough for smooth GUI
+// rendering (well under a 60 Hz vsync frame) without spinning the loop as
+// fast as a small step_dt (e.g. the 0.01 s default) would otherwise demand.
+constexpr std::chrono::milliseconds kLoopPeriod{ 5 };
+
+// Upper bound on simulated time advanced in a single iteration. Bounds the
+// "spiral of death" that a naive fixed-timestep accumulator suffers when
+// wall-clock pacing falls behind (e.g. a scheduling stall): rather than
+// looping engine_.step() until caught up (which only makes the stall worse),
+// we discard the backlog beyond this cap and let the sim resume from there.
+constexpr double kMaxCatchUpSeconds = 0.25;
+
+}  // namespace
+
+StandaloneBackend::StandaloneBackend() : engine_(world_model_, kStandaloneDefaultStepDt)
 {
   engine_.set_tf_rate(stdr_gui::kDefaultTfRate);
   engine_.set_odom_rate(stdr_gui::kDefaultOdomRate);
@@ -274,6 +293,17 @@ void StandaloneBackend::push_command(stdr::plot_data::Command cmd)
 
 void StandaloneBackend::simulation_loop(std::stop_token stop_token)
 {
+  // Wall-clock reference and simulated-time target for the fixed-timestep
+  // accumulator below ("Fix Your Timestep"). Both are re-anchored whenever
+  // the loop transitions out of a wait (initial start, or resume after
+  // pause/reset) so that time spent paused is never replayed as backlog.
+  std::chrono::steady_clock::time_point last_wake = std::chrono::steady_clock::now();
+  double sim_target = 0.0;
+  // Set once a catch-up cap has already been reported, so the "fell behind"
+  // message is pushed only when the backlog condition begins, not on every
+  // iteration for as long as it persists.
+  bool catch_up_warned = false;
+
   while (!stop_token.stop_requested())
   {
     // Drain queued commands before taking sim_mutex_ for the physics step.
@@ -285,22 +315,47 @@ void StandaloneBackend::simulation_loop(std::stop_token stop_token)
     // overwrites the first — the same semantics the keyboard teleop path uses.
     const std::vector<stdr::plot_data::Command> commands = cmd_queue_.drain();
 
-    double step_dt = 0.0;
     // Warning messages collected during the locked dispatch loop are pushed
     // after sim_mutex_ is released to preserve the lock-ordering invariant:
     // sim_mutex_ must always be released before acquiring msg_mutex_ (as
     // load_map, spawn_robot, and delete_robot all do).
     std::vector<std::string> deferred_messages;
+    bool catch_up_capped = false;
     {
       std::unique_lock<std::mutex> lock(sim_mutex_);
+      // Set by the predicate if it ever observes running_ == false, i.e. the
+      // thread actually blocked here. Evaluated under sim_mutex_, so it
+      // cannot go stale the way a pre-wait snapshot of running_ could when
+      // pause() (which mutates running_ without sim_mutex_) lands between
+      // that snapshot and the wait.
+      bool waited = false;
       // Returns false when stop is requested while waiting, in which case we exit.
-      if (!cv_.wait(lock, stop_token, [this] { return running_.load(std::memory_order_relaxed); }))
+      if (!cv_.wait(lock, stop_token, [this, &waited] {
+            const bool running = running_.load(std::memory_order_relaxed);
+            if (!running)
+            {
+              waited = true;
+            }
+            return running;
+          }))
       {
         break;
       }
 
+      // Re-anchor on every transition out of a wait (initial start, or
+      // resume after pause()/reset()) so the wall-clock duration spent
+      // paused is discarded rather than simulated as a catch-up burst.
+      // sim_target is tracked relative to elapsed_time_, so this also
+      // handles reset() correctly since reset() sets elapsed_time_ to 0.0
+      // and forces running_ to false, guaranteeing the next resume re-anchors.
+      if (waited)
+      {
+        last_wake = std::chrono::steady_clock::now();
+        sim_target = elapsed_time_;
+      }
+
       // Dispatch drained commands under sim_mutex_ so they are applied before
-      // this tick's physics step runs.
+      // this iteration's physics step(s) run.
       for (const stdr::plot_data::Command& cmd : commands)
       {
         switch (cmd.kind)
@@ -345,17 +400,47 @@ void StandaloneBackend::simulation_loop(std::stop_token stop_token)
         }
       }
 
-      // Load step_dt once per iteration for a consistent tick interval and physics dt.
-      step_dt = step_dt_.load(std::memory_order_relaxed);
-      // Still holding sim_mutex_ — step the simulation while state is locked.
-      const double effective_dt = step_dt * speed_.load(std::memory_order_relaxed);
-      engine_.step(effective_dt);
-      elapsed_time_ += effective_dt;
+      // Load step_dt once per iteration; it is never scaled by speed_ — the
+      // physics integration step is always exactly step_dt regardless of
+      // how fast simulated time is advancing relative to the wall clock.
+      const double step_dt = step_dt_.load(std::memory_order_relaxed);
+      const double speed = speed_.load(std::memory_order_relaxed);
 
-      // Push new sensor readings into SPSC rings so plotters can drain them.
-      // We do this under sim_mutex_ (already held) so the push happens
-      // atomically with the step — the snapshot and rings are always consistent.
-      push_sensor_events_locked(elapsed_time_);
+      const std::chrono::steady_clock::time_point now = std::chrono::steady_clock::now();
+      const double wall_elapsed = std::chrono::duration<double>(now - last_wake).count();
+      last_wake = now;
+      sim_target += wall_elapsed * speed;
+
+      // Cap catch-up so a scheduling stall doesn't turn into a spiral of
+      // death of ever-more engine_.step() calls; discard the excess backlog.
+      if (sim_target - elapsed_time_ > kMaxCatchUpSeconds)
+      {
+        sim_target = elapsed_time_ + kMaxCatchUpSeconds;
+        if (!catch_up_warned)
+        {
+          catch_up_capped = true;
+          catch_up_warned = true;
+        }
+      }
+      else
+      {
+        catch_up_warned = false;
+      }
+
+      // Still holding sim_mutex_ — advance the simulation in fixed step_dt
+      // increments until the accumulated sim_target is reached.
+      while (elapsed_time_ + step_dt <= sim_target)
+      {
+        engine_.step(step_dt);
+        elapsed_time_ += step_dt;
+
+        // Push new sensor readings into SPSC rings so plotters can drain
+        // them. We do this under sim_mutex_ (already held) so the push
+        // happens atomically with the step — the snapshot and rings are
+        // always consistent, and every step (not just the last of the
+        // iteration) gets a chance to fire its rate-scheduled sensors.
+        push_sensor_events_locked(elapsed_time_);
+      }
     }
 
     // Push any messages collected during dispatch now that sim_mutex_ is
@@ -364,9 +449,16 @@ void StandaloneBackend::simulation_loop(std::stop_token stop_token)
     {
       push_message(std::move(msg));
     }
+    if (catch_up_capped)
+    {
+      push_message(std::format("Simulation fell behind real-time; discarded backlog beyond {:.2f} s to catch up",
+                               kMaxCatchUpSeconds));
+    }
 
-    // Sleep for the real-time step interval outside the lock.
-    std::this_thread::sleep_for(std::chrono::duration<double>(step_dt));
+    // Pace the loop on a fixed wall-clock period, independent of step_dt, so
+    // pose updates arrive at a steady cadence for the GUI. Outside the lock,
+    // as before.
+    std::this_thread::sleep_until(last_wake + kLoopPeriod);
   }
 }
 

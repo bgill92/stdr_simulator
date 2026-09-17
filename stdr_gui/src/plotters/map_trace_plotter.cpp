@@ -1,44 +1,29 @@
-/** @file Map trace plotter: renders the occupancy grid as a background texture,
- *  draws the robot's footprint and heading arrow at its current pose, and
- *  overlays a breadcrumb trail colored by age (blue = oldest, red = latest).
+/** @file Map trace plotter: renders the occupancy grid as a background
+ *  texture, draws the robot's footprint and heading arrow at its current
+ *  pose, and overlays a breadcrumb trail colored by age (blue = oldest,
+ *  red = latest).
  *
  *  Texture upload is performed in on_sample where SimView is available, so
- *  on_render only calls ImPlot::PlotImage with the pre-uploaded GL texture. */
+ *  on_render only calls MapTexture::plot with the pre-uploaded GL texture. */
 
-#include <stdr_gui/grid_utils.hpp>
 #include <stdr_gui/plot/helpers.hpp>
+#include <stdr_gui/plot/map_texture.hpp>
 #include <stdr_gui/plot/plotter.hpp>
 #include <stdr_gui/plot/registry.hpp>
 #include <stdr_gui/plot/sim_introspection.hpp>
+#include <stdr_gui/plot/trail.hpp>
 
 #include <imgui.h>
 #include <implot.h>
 
-#define GLFW_INCLUDE_NONE
-#include <GL/gl.h>
-
 #include <cmath>
 #include <cstddef>
-#include <cstdint>
-#include <cstring>
 #include <deque>
 #include <string_view>
 #include <vector>
 
 namespace
 {
-
-// Minimum Euclidean distance the robot must travel before a new breadcrumb is
-// dropped.  Below this spacing, slow or stationary motion produces a dense,
-// indistinguishable blob.
-constexpr double kMarkerSpacingMeters = 0.1;
-
-// Hard cap on stored breadcrumb markers so memory and per-frame render cost
-// stay bounded regardless of how long the simulation runs.
-constexpr std::size_t kMaxMarkers = 500;
-
-// Length of the heading arrow drawn from the robot's origin, in metres.
-constexpr double kHeadingArrowLen = 0.3;
 
 // Length of the per-marker heading tick drawn in the breadcrumb loop, in metres.
 // Kept shorter than the main heading arrow so individual ticks stay readable at
@@ -53,14 +38,6 @@ class MapTracePlotter : public stdr::plot::Plotter
 {
 public:
   MapTracePlotter() = default;
-
-  ~MapTracePlotter() override
-  {
-    if (map_texture_id_ != 0)
-    {
-      glDeleteTextures(1, &map_texture_id_);
-    }
-  }
 
   [[nodiscard]] std::string_view name() const override
   {
@@ -112,37 +89,12 @@ public:
     }
 
     // Upload the map texture here where SimView is available.  on_render only
-    // calls PlotImage with the resulting GL texture handle.
-    const stdr_simulation::OccupancyGrid& grid = sim.map();
-    if (grid.width > 0 && grid.height > 0)
-    {
-      upload_map_texture(grid);
-    }
+    // calls MapTexture::plot with the resulting GL texture handle.
+    map_texture_.update(sim.map());
 
     // Track the current pose for footprint and heading rendering.
     latest_pose_ = sim.pose(robot_);
-
-    // Append to the breadcrumb trail if the robot has moved far enough.
-    if (trail_.empty())
-    {
-      trail_.push_back(latest_pose_);
-    }
-    else
-    {
-      const stdr_simulation::Pose2D& last = trail_.back();
-      const double dx = latest_pose_.x - last.x;
-      const double dy = latest_pose_.y - last.y;
-      if (std::hypot(dx, dy) >= kMarkerSpacingMeters)
-      {
-        // pop_front is O(1) on std::deque, avoiding the O(n) erase(begin())
-        // that a std::vector-based trail would require.
-        if (trail_.size() >= kMaxMarkers)
-        {
-          trail_.pop_front();
-        }
-        trail_.push_back(latest_pose_);
-      }
-    }
+    trail_.push_if_moved(latest_pose_);
   }
 
   void on_render(const stdr::plot::PlotView& /*data*/) override
@@ -159,30 +111,18 @@ public:
       const ImPlotAxisFlags axis_flags = lock_view_ ? ImPlotAxisFlags_AutoFit : ImPlotAxisFlags_None;
       ImPlot::SetupAxes("x (m)", "y (m)", axis_flags, axis_flags);
 
-      // Map texture as background.  UV coordinates flip the texture vertically
-      // so that the ROS convention (y up) matches ImPlot's y-up plot space.
-      if (map_texture_id_ != 0)
-      {
-        const ImPlotPoint bmin{ map_origin_x_, map_origin_y_ };
-        const ImPlotPoint bmax{ map_origin_x_ + static_cast<double>(map_w_cached_) * map_resolution_,
-                                map_origin_y_ + static_cast<double>(map_h_cached_) * map_resolution_ };
-        // Cast the GL texture handle to ImTextureRef using the same pattern as
-        // map_panel.cpp (stdr_gui/src/panels/map_panel.cpp:214).  The explicit
-        // ImTextureRef wrap is required because IMGUI_HAS_TEXTURES is defined,
-        // making PlotImage's second argument ImTextureRef rather than ImTextureID.
-        ImPlot::PlotImage("##map", ImTextureRef(static_cast<ImTextureID>(map_texture_id_)), bmin, bmax,
-                          ImVec2(0.0f, 1.0f),   // UV top-left: bottom of GL texture.
-                          ImVec2(1.0f, 0.0f));  // UV bottom-right: top of GL texture.
-      }
+      // Map texture as background.
+      map_texture_.plot("##map");
 
       // Rendered before the per-marker scatter loop so dots appear on top.
-      if (trail_.size() > 1)
+      const std::deque<stdr_simulation::Pose2D>& trail = trail_.points;
+      if (trail.size() > 1)
       {
         std::vector<double> xs;
         std::vector<double> ys;
-        xs.reserve(trail_.size());
-        ys.reserve(trail_.size());
-        for (const stdr_simulation::Pose2D& p : trail_)
+        xs.reserve(trail.size());
+        ys.reserve(trail.size());
+        for (const stdr_simulation::Pose2D& p : trail)
         {
           xs.push_back(p.x);
           ys.push_back(p.y);
@@ -194,24 +134,24 @@ public:
 
       // One PlotScatter per point: ImPlot has no per-point color API, so the age
       // gradient (blue → red) requires per-call PushStyleColor.
-      for (std::size_t i = 0; i < trail_.size(); ++i)
+      for (std::size_t i = 0; i < trail.size(); ++i)
       {
-        const float t = trail_.size() > 1 ? static_cast<float>(i) / static_cast<float>(trail_.size() - 1) : 1.0f;
+        const float t = trail.size() > 1 ? static_cast<float>(i) / static_cast<float>(trail.size() - 1) : 1.0f;
         const ImVec4 color(t, 0.0f, 1.0f - t, 1.0f);
         ImPlot::PushStyleColor(ImPlotCol_MarkerFill, color);
         ImPlot::PushStyleColor(ImPlotCol_MarkerOutline, color);
-        const double x = trail_[i].x;
-        const double y = trail_[i].y;
+        const double x = trail[i].x;
+        const double y = trail[i].y;
         ImPlot::PlotScatter("##trail", &x, &y, 1);
         ImPlot::PopStyleColor(2);
 
         // Heading tick: short line from the marker center in the direction of
         // theta, using the same age-gradient color so the tick visually belongs
         // to its dot.
-        const double tip_x = trail_[i].x + std::cos(trail_[i].theta) * kHeadingTickMeters;
-        const double tip_y = trail_[i].y + std::sin(trail_[i].theta) * kHeadingTickMeters;
-        const double tx[2] = { trail_[i].x, tip_x };
-        const double ty[2] = { trail_[i].y, tip_y };
+        const double tip_x = trail[i].x + std::cos(trail[i].theta) * kHeadingTickMeters;
+        const double tip_y = trail[i].y + std::sin(trail[i].theta) * kHeadingTickMeters;
+        const double tx[2] = { trail[i].x, tip_x };
+        const double ty[2] = { trail[i].y, tip_y };
         ImPlot::PushStyleColor(ImPlotCol_Line, color);
         ImPlot::PlotLine("##tick", tx, ty, 2);
         ImPlot::PopStyleColor();
@@ -254,8 +194,10 @@ public:
       // Heading arrow: a 2-point line from the robot origin in the direction of
       // the current heading angle.
       {
-        const double arr_x[2] = { latest_pose_.x, latest_pose_.x + std::cos(latest_pose_.theta) * kHeadingArrowLen };
-        const double arr_y[2] = { latest_pose_.y, latest_pose_.y + std::sin(latest_pose_.theta) * kHeadingArrowLen };
+        const double arr_x[2] = { latest_pose_.x,
+                                  latest_pose_.x + std::cos(latest_pose_.theta) * stdr::plot::kHeadingArrowLen };
+        const double arr_y[2] = { latest_pose_.y,
+                                  latest_pose_.y + std::sin(latest_pose_.theta) * stdr::plot::kHeadingArrowLen };
         ImPlot::SetNextLineStyle(ImVec4(1.0f, 0.0f, 0.0f, 1.0f), 2.0f);
         ImPlot::PlotLine("##heading", arr_x, arr_y, 2);
       }
@@ -280,77 +222,13 @@ public:
   }
 
 private:
-  /** Upload or re-upload the occupancy grid as a GL_RGBA texture.
-   *
-   *  Re-uploads only when the grid dimensions change or the data pointer
-   *  changes, which is a cheap proxy for detecting map content updates since
-   *  stdr_simulation replaces the data vector on each map load.
-   *
-   *  Conversion logic mirrors stdr_gui::occupancy_to_rgba (grid_utils.cpp). */
-  void upload_map_texture(const stdr_simulation::OccupancyGrid& grid)
-  {
-    const bool dimensions_changed = (grid.width != map_w_cached_ || grid.height != map_h_cached_);
-    const bool data_changed = (static_cast<const void*>(grid.data.data()) != map_data_cached_);
-
-    if (!dimensions_changed && !data_changed)
-    {
-      return;
-    }
-
-    map_w_cached_ = grid.width;
-    map_h_cached_ = grid.height;
-    map_data_cached_ = static_cast<const void*>(grid.data.data());
-    map_origin_x_ = grid.origin.x;
-    map_origin_y_ = grid.origin.y;
-    map_resolution_ = grid.resolution;
-
-    const std::size_t pixel_count = static_cast<std::size_t>(grid.width) * static_cast<std::size_t>(grid.height);
-    // Build an RGBA pixel buffer from occupancy values.  Conversion matches
-    // stdr_gui/src/grid_utils.cpp:occupancy_to_rgba exactly: -1 → mid-grey
-    // (128,128,128), 0 → white (255,255,255), 100 → black (0,0,0), 1-99 →
-    // linear interpolation.
-    std::vector<std::uint8_t> rgba(pixel_count * 4);
-    for (std::size_t i = 0; i < pixel_count; ++i)
-    {
-      const std::int8_t val = grid.data[i];
-      const stdr_gui::RgbaPixel pixel = stdr_gui::occupancy_to_rgba(val);
-      std::memcpy(rgba.data() + i * 4, pixel.data(), 4);
-    }
-
-    if (map_texture_id_ == 0)
-    {
-      glGenTextures(1, &map_texture_id_);
-    }
-
-    glBindTexture(GL_TEXTURE_2D, map_texture_id_);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-
-    if (dimensions_changed)
-    {
-      glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, grid.width, grid.height, 0, GL_RGBA, GL_UNSIGNED_BYTE, rgba.data());
-    }
-    else
-    {
-      glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, grid.width, grid.height, GL_RGBA, GL_UNSIGNED_BYTE, rgba.data());
-    }
-
-    glBindTexture(GL_TEXTURE_2D, 0);
-  }
-
   std::string robot_;
-  std::deque<stdr_simulation::Pose2D> trail_;
+  stdr::plot::Trail trail_;
   std::vector<stdr_simulation::Point2D> footprint_robot_frame_;
   stdr_simulation::Point2D center_of_rotation_robot_frame_{};
   bool footprint_fetched_{ false };
 
-  GLuint map_texture_id_{ 0 };
-  int map_w_cached_{ 0 };
-  int map_h_cached_{ 0 };
-  const void* map_data_cached_{ nullptr };
-  double map_origin_x_{ 0.0 };
-  double map_origin_y_{ 0.0 };
-  double map_resolution_{ 0.05 };
+  stdr::plot::MapTexture map_texture_;
 
   stdr_simulation::Pose2D latest_pose_{};
 

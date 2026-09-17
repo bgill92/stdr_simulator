@@ -101,23 +101,28 @@ void Toolbar::render_menu_bar(SimulatorBackend& backend, FileDialog& file_dialog
     ImGui::Separator();
     if (ImGui::BeginMenu("Timestep"))
     {
-      if (ImGui::MenuItem("0.01 s (100 Hz)"))
+      // The active preset is marked via `selected` rather than a hardcoded
+      // "[default]" label, since the actual default differs by backend
+      // (e.g. the standalone backend defaults to 0.01 s, not 0.1 s).
+      constexpr double kSelectionTolerance = 1e-9;
+      const double current_step_dt = backend.get_step_dt();
+      if (ImGui::MenuItem("0.01 s (100 Hz)", nullptr, std::abs(current_step_dt - 0.01) < kSelectionTolerance))
       {
         backend.set_step_dt(0.01);
       }
-      if (ImGui::MenuItem("0.05 s (20 Hz)"))
+      if (ImGui::MenuItem("0.05 s (20 Hz)", nullptr, std::abs(current_step_dt - 0.05) < kSelectionTolerance))
       {
         backend.set_step_dt(0.05);
       }
-      if (ImGui::MenuItem("0.1 s (10 Hz)  [default]"))
+      if (ImGui::MenuItem("0.1 s (10 Hz)", nullptr, std::abs(current_step_dt - 0.1) < kSelectionTolerance))
       {
         backend.set_step_dt(0.1);
       }
-      if (ImGui::MenuItem("0.2 s (5 Hz)"))
+      if (ImGui::MenuItem("0.2 s (5 Hz)", nullptr, std::abs(current_step_dt - 0.2) < kSelectionTolerance))
       {
         backend.set_step_dt(0.2);
       }
-      if (ImGui::MenuItem("0.5 s (2 Hz)"))
+      if (ImGui::MenuItem("0.5 s (2 Hz)", nullptr, std::abs(current_step_dt - 0.5) < kSelectionTolerance))
       {
         backend.set_step_dt(0.5);
       }

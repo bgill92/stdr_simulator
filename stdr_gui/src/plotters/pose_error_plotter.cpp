@@ -6,6 +6,7 @@
  *  if the WHOLE_ARCHIVE link is missing, this TU is dead-stripped and the
  *  registry stays empty, which the test_plotter_registry test would catch. */
 
+#include <stdr_gui/plot/helpers.hpp>
 #include <stdr_gui/plot/plotter.hpp>
 #include <stdr_gui/plot/registry.hpp>
 #include <stdr_gui/plot/sim_introspection.hpp>
@@ -21,17 +22,6 @@ namespace
 // Circle-driving command, held constant for the lifetime of the plotter.
 constexpr double kDriveLinearVelocity = 0.3;   // m/s
 constexpr double kDriveAngularVelocity = 0.5;  // rad/s
-
-// Normalizes an angle difference to (-pi, pi] using the same atan2(sin, cos)
-// idiom already used for heading wraparound in ideal_motion_model.cpp and
-// omni_motion_model.cpp — stdr_simulation cannot be touched from this package,
-// so the idiom is reproduced locally rather than exposing a new cross-package
-// utility for one call site.
-[[nodiscard]] double wrapped_angle_diff(double a, double b)
-{
-  const double diff = a - b;
-  return std::atan2(std::sin(diff), std::cos(diff));
-}
 
 class PoseErrorPlotter : public stdr::plot::Plotter
 {
@@ -93,7 +83,7 @@ public:
     const double t = sim.sim_time();
 
     out.scalar("err_xy", t, std::hypot(gt.x - odom.x, gt.y - odom.y));
-    out.scalar("err_theta", t, wrapped_angle_diff(gt.theta, odom.theta));
+    out.scalar("err_theta", t, stdr::plot::helpers::wrapped_angle_diff(gt.theta, odom.theta));
   }
 
   void on_render(const stdr::plot::PlotView& data) override

@@ -6,6 +6,7 @@
 #include <gtest/gtest.h>
 
 #include <chrono>
+#include <cmath>
 #include <string>
 #include <thread>
 
@@ -305,7 +306,7 @@ TEST(StandaloneBackend, SetSpeedDoesNotCrash)
 TEST(StandaloneBackend, DefaultStepDtMatchesConstant)
 {
   StandaloneBackend backend;
-  EXPECT_DOUBLE_EQ(backend.get_step_dt(), stdr_gui::kDefaultStepDt);
+  EXPECT_DOUBLE_EQ(backend.get_step_dt(), kStandaloneDefaultStepDt);
 }
 
 TEST(StandaloneBackend, SetStepDtClampsToValidRange)
@@ -337,6 +338,85 @@ TEST(StandaloneBackend, SetStepDtChangesElapsedTimeRate)
   const auto snapshot = backend.get_snapshot();
   EXPECT_GT(snapshot->elapsed_time, 0.15);
   EXPECT_LT(snapshot->elapsed_time, 0.9);
+}
+
+// --- Fixed-timestep accumulator loop ---
+
+TEST(StandaloneBackend, ElapsedTimeTracksWallClock)
+{
+  StandaloneBackend backend;
+  // No map loaded so collision checking is skipped; we only need the clock to tick.
+  std::ignore = backend.spawn_robot(robot_path(), { 0.0, 0.0, 0.0 });
+
+  backend.start();
+  std::this_thread::sleep_for(std::chrono::milliseconds(300));
+  backend.pause();
+
+  const double elapsed = backend.sim_time();
+  EXPECT_GT(elapsed, 0.2);
+  EXPECT_LT(elapsed, 0.4);
+}
+
+TEST(StandaloneBackend, SpeedMultiplierScalesElapsedTime)
+{
+  StandaloneBackend backend;
+  std::ignore = backend.spawn_robot(robot_path(), { 0.0, 0.0, 0.0 });
+
+  backend.set_speed(3.0);
+  backend.start();
+  std::this_thread::sleep_for(std::chrono::milliseconds(300));
+  backend.pause();
+
+  const double elapsed = backend.sim_time();
+  EXPECT_GT(elapsed, 0.6);
+  EXPECT_LT(elapsed, 1.2);
+}
+
+TEST(StandaloneBackend, SpeedDoesNotChangeStepDt)
+{
+  StandaloneBackend backend;
+  std::ignore = backend.spawn_robot(robot_path(), { 0.0, 0.0, 0.0 });
+
+  // A speed multiplier must scale how much sim time is covered per wall-clock
+  // second, never the physics dt itself — elapsed time must always land on an
+  // exact multiple of step_dt. The old (buggy) loop instead multiplied
+  // step_dt by speed_, producing 0.05*2.7 = 0.135 s increments per tick; 2.7
+  // is deliberately not a low-order multiple of 1 (unlike e.g. 3.0, whose
+  // 0.15 s increment is coincidentally still an exact multiple of 0.05 s) so
+  // this reliably fails against the old loop regardless of tick count.
+  constexpr double kStepDt = 0.05;
+  backend.set_step_dt(kStepDt);
+  backend.set_speed(2.7);
+  backend.start();
+  std::this_thread::sleep_for(std::chrono::milliseconds(300));
+  backend.pause();
+
+  const double elapsed = backend.sim_time();
+  ASSERT_GT(elapsed, 0.0);
+  const double step_count = elapsed / kStepDt;
+  EXPECT_NEAR(step_count, std::round(step_count), 1e-6);
+}
+
+TEST(StandaloneBackend, ResumeAfterPauseDoesNotBurstCatchUp)
+{
+  StandaloneBackend backend;
+  std::ignore = backend.spawn_robot(robot_path(), { 0.0, 0.0, 0.0 });
+
+  backend.start();
+  std::this_thread::sleep_for(std::chrono::milliseconds(100));
+  backend.pause();
+  const double e1 = backend.sim_time();
+
+  // While paused, wall-clock time passes but must never be treated as
+  // simulated backlog once resumed.
+  std::this_thread::sleep_for(std::chrono::milliseconds(300));
+
+  backend.start();
+  std::this_thread::sleep_for(std::chrono::milliseconds(5));
+  backend.pause();
+  const double e2 = backend.sim_time();
+
+  EXPECT_LT(e2 - e1, 0.1);
 }
 
 TEST(StandaloneBackend, DeleteNonexistentRobotIsNoOp)
