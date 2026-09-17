@@ -83,15 +83,25 @@ class PlotPanel
 public:
   /** @brief Construct and populate slots from the global `PlotterRegistry`.
    *
-   *  Each registered plotter is instantiated once and assigned a slot.
+   *  Each selected plotter is instantiated once and assigned a slot.
    *  `on_init` is called immediately so plotters can cache robot/sensor IDs
    *  before the first frame.
    *
-   *  @param backend     Non-owning reference to the backend.  Must outlive this panel.
-   *  @param registry    Registry to query for plotter factories.  Defaults to the
-   *                     global singleton so call sites do not need to pass it, but
-   *                     tests can supply a local registry to avoid global state. */
-  explicit PlotPanel(stdr_gui::SimulatorBackend& backend, PlotterRegistry& registry = PlotterRegistry::instance());
+   *  @param backend           Non-owning reference to the backend.  Must outlive this panel.
+   *  @param registry          Registry to query for plotter factories.  Defaults to the
+   *                           global singleton so call sites do not need to pass it, but
+   *                           tests can supply a local registry to avoid global state.
+   *  @param enabled_plotters  Registry (class) names — e.g. `PoseErrorPlotter`, not the
+   *                           display name from `Plotter::name()` — of the plotters to
+   *                           instantiate.  Empty (the default) means all registered
+   *                           plotters are instantiated, matching prior behaviour.
+   *                           Unselected entries are never instantiated and `on_init`
+   *                           is never called for them.  A name with no matching
+   *                           registry entry is skipped with a warning logged to
+   *                           stderr; it does not throw.  Duplicates are ignored —
+   *                           each name yields at most one slot. */
+  explicit PlotPanel(stdr_gui::SimulatorBackend& backend, PlotterRegistry& registry = PlotterRegistry::instance(),
+                     const std::vector<std::string>& enabled_plotters = {});
 
   /** @brief Drive `on_sample` (rate-limited) for each enabled slot.
    *

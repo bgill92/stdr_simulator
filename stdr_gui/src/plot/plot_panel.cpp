@@ -6,9 +6,11 @@
 
 #include <imgui.h>
 
+#include <algorithm>
 #include <chrono>
 #include <cstddef>
 #include <exception>
+#include <iostream>
 #include <string>
 #include <utility>
 
@@ -24,17 +26,60 @@ std::unique_ptr<SimView> make_backend_sim_view(stdr_gui::SimulatorBackend& backe
 namespace stdr::plot
 {
 
-PlotPanel::PlotPanel(stdr_gui::SimulatorBackend& backend, PlotterRegistry& registry) : backend_(backend)
+PlotPanel::PlotPanel(stdr_gui::SimulatorBackend& backend, PlotterRegistry& registry,
+                     const std::vector<std::string>& enabled_plotters)
+  : backend_(backend)
 {
-  // Build one slot per registered factory.  The factory is stored in the slot
+  // Build one slot per selected factory.  The factory is stored in the slot
   // so Remove can reinstantiate without going back to the registry.
   const std::vector<PlotterRegistry::Entry> entries = registry.entries();
-  slots_.reserve(entries.size());
-  for (const PlotterRegistry::Entry& entry : entries)
+
+  if (enabled_plotters.empty())
   {
+    slots_.reserve(entries.size());
+    for (const PlotterRegistry::Entry& entry : entries)
+    {
+      Slot& slot = slots_.emplace_back();
+      slot.factory = entry.factory;
+      init_slot(slot);
+    }
+    return;
+  }
+
+  slots_.reserve(enabled_plotters.size());
+  // Tracks registry names already turned into a slot so a name repeated on
+  // the command line (e.g. `--plotter Foo --plotter Foo`) does not double up.
+  std::vector<std::string> created_names;
+  created_names.reserve(enabled_plotters.size());
+  for (const std::string& requested_name : enabled_plotters)
+  {
+    const auto it = std::ranges::find_if(entries, [&requested_name](const PlotterRegistry::Entry& e) {
+      return e.name == requested_name;
+    });
+    if (it == entries.end())
+    {
+      std::cerr << "Warning: unknown plotter \"" << requested_name << "\" requested; available plotters: ";
+      for (std::size_t i = 0; i < entries.size(); ++i)
+      {
+        std::cerr << entries[i].name;
+        if (i + 1 < entries.size())
+        {
+          std::cerr << ", ";
+        }
+      }
+      std::cerr << '\n';
+      continue;
+    }
+
+    if (std::ranges::find(created_names, it->name) != created_names.end())
+    {
+      continue;
+    }
+
     Slot& slot = slots_.emplace_back();
-    slot.factory = entry.factory;
+    slot.factory = it->factory;
     init_slot(slot);
+    created_names.push_back(it->name);
   }
 }
 

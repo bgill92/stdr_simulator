@@ -1,4 +1,5 @@
 #include <stdr_gui/gui_app.hpp>
+#include <stdr_gui/plot/registry.hpp>
 #include "stdr_standalone/standalone_backend.hpp"
 
 #include <stdr_simulation/types.hpp>
@@ -7,12 +8,25 @@
 #include <iostream>
 #include <memory>
 #include <string>
+#include <vector>
 
 namespace
 {
 
 void print_usage(const char* program)
 {
+  // Plotters self-register before main(), so the registry is fully populated here.
+  const std::vector<stdr::plot::PlotterRegistry::Entry>& plotters = stdr::plot::PlotterRegistry::instance().entries();
+  std::string plotter_names;
+  for (std::size_t i = 0; i < plotters.size(); ++i)
+  {
+    plotter_names += plotters[i].name;
+    if (i + 1 < plotters.size())
+    {
+      plotter_names += ", ";
+    }
+  }
+
   std::cerr << "Usage: " << program << " [OPTIONS]\n"
             << "Options:\n"
             << "  --map <path>     Load map YAML file on startup\n"
@@ -20,6 +34,8 @@ void print_usage(const char* program)
             << "  --x <float>      Robot spawn X position (default: 0)\n"
             << "  --y <float>      Robot spawn Y position (default: 0)\n"
             << "  --theta <float>  Robot spawn heading in radians (default: 0)\n"
+            << "  --plotter <Name> Enable only this plotter (repeatable; default: all). Names: " << plotter_names
+            << "\n"
             << "  --help           Show this help message\n";
 }
 
@@ -32,6 +48,7 @@ int main(int argc, char* argv[])
   float spawn_x = 0.0f;
   float spawn_y = 0.0f;
   float spawn_theta = 0.0f;
+  std::vector<std::string> enabled_plotters;
 
   for (int i = 1; i < argc; ++i)
   {
@@ -60,6 +77,10 @@ int main(int argc, char* argv[])
     else if (arg == "--theta" && i + 1 < argc)
     {
       spawn_theta = std::stof(argv[++i]);
+    }
+    else if (arg == "--plotter" && i + 1 < argc)
+    {
+      enabled_plotters.push_back(argv[++i]);
     }
     else
     {
@@ -95,7 +116,7 @@ int main(int argc, char* argv[])
     }
   }
 
-  stdr_gui::GuiApp app(std::move(backend));
+  stdr_gui::GuiApp app(std::move(backend), std::move(enabled_plotters));
 
   const tl::expected<void, std::string> result = app.init();
   if (!result)

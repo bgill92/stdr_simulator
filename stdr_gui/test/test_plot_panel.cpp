@@ -534,6 +534,81 @@ TEST(PlotPanel, EmptyRegistryConstructsSuccessfully)
 }
 
 // ---------------------------------------------------------------------------
+// enabled_plotters filter tests
+// ---------------------------------------------------------------------------
+
+TEST(PlotPanel, EmptyFilterInstantiatesAll)
+{
+  reset_fake_state();
+  stdr_gui::StubBackend backend;
+
+  PlotterRegistry reg;
+  std::ignore = reg.register_plotter<FakePlotter<0>>("FakePlotter0");
+  std::ignore = reg.register_plotter<FakePlotter<1>>("FakePlotter1");
+
+  PlotPanel panel(backend, reg, {});
+
+  EXPECT_EQ(panel.slot_status().size(), reg.entries().size());
+}
+
+TEST(PlotPanel, FilterSelectsOnlyNamedPlotters)
+{
+  reset_fake_state();
+  stdr_gui::StubBackend backend;
+
+  PlotterRegistry reg;
+  std::ignore = reg.register_plotter<FakePlotter<0>>("FakePlotter0");
+  std::ignore = reg.register_plotter<FakePlotter<1>>("FakePlotter1");
+
+  PlotPanel panel(backend, reg, std::vector<std::string>{ "FakePlotter1" });
+
+  const std::vector<PlotterStatus> statuses = panel.slot_status();
+  ASSERT_THAT(statuses, ::testing::SizeIs(1));
+  EXPECT_EQ(statuses[0].name, "FakePlotter1");
+}
+
+TEST(PlotPanel, UnknownFilterNameYieldsNoSlots)
+{
+  reset_fake_state();
+  stdr_gui::StubBackend backend;
+
+  PlotterRegistry reg;
+  std::ignore = reg.register_plotter<FakePlotter<0>>("FakePlotter0");
+
+  PlotPanel panel(backend, reg, std::vector<std::string>{ "NoSuchPlotter" });
+
+  EXPECT_THAT(panel.slot_status(), ::testing::IsEmpty());
+}
+
+TEST(PlotPanel, DuplicateFilterNameYieldsOneSlot)
+{
+  reset_fake_state();
+  stdr_gui::StubBackend backend;
+
+  PlotterRegistry reg;
+  std::ignore = reg.register_plotter<FakePlotter<0>>("FakePlotter0");
+
+  PlotPanel panel(backend, reg, std::vector<std::string>{ "FakePlotter0", "FakePlotter0" });
+
+  EXPECT_THAT(panel.slot_status(), ::testing::SizeIs(1));
+}
+
+TEST(PlotPanel, FilterWithUnknownAndKnownNameKeepsKnown)
+{
+  reset_fake_state();
+  stdr_gui::StubBackend backend;
+
+  PlotterRegistry reg;
+  std::ignore = reg.register_plotter<FakePlotter<0>>("FakePlotter0");
+
+  PlotPanel panel(backend, reg, std::vector<std::string>{ "NoSuch", "FakePlotter0" });
+
+  const std::vector<PlotterStatus> statuses = panel.slot_status();
+  ASSERT_THAT(statuses, ::testing::SizeIs(1));
+  EXPECT_EQ(statuses[0].name, "FakePlotter0");
+}
+
+// ---------------------------------------------------------------------------
 // on_pause / on_resume lifecycle hook tests
 // ---------------------------------------------------------------------------
 

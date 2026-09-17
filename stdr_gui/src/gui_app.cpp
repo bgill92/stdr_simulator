@@ -28,7 +28,8 @@ constexpr float kTopRowFraction = 0.7f;
 namespace stdr_gui
 {
 
-GuiApp::GuiApp(std::unique_ptr<SimulatorBackend> backend) : backend_(std::move(backend))
+GuiApp::GuiApp(std::unique_ptr<SimulatorBackend> backend, std::vector<std::string> enabled_plotters)
+  : backend_(std::move(backend)), enabled_plotters_(std::move(enabled_plotters))
 {
 }
 
@@ -97,7 +98,8 @@ int GuiApp::run()
     // exists before any plotter's on_init is called.
     if (!plot_panel_)
     {
-      plot_panel_ = std::make_unique<stdr::plot::PlotPanel>(*backend_);
+      plot_panel_ = std::make_unique<stdr::plot::PlotPanel>(*backend_, stdr::plot::PlotterRegistry::instance(),
+                                                            enabled_plotters_);
       // Propagate a backend reset to the plot panel so plotters can drop
       // trajectory/time-keyed state before the next sample against the
       // restarted sim clock.  Capturing `this` is safe because both the
