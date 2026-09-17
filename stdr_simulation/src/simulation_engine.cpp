@@ -141,6 +141,20 @@ void SimulationEngine::register_sensor_streams(const std::string& robot_name, co
   }
 }
 
+RobotSensorData SimulationEngine::make_empty_sensor_data(const RobotConfig& config)
+{
+  // Pre-size sensor vectors to match the config so that event.index is always
+  // a valid slot, even before the first sensor fires.
+  RobotSensorData data{};
+  data.laser_scans.resize(config.laser_sensors.size());
+  data.sonar_scans.resize(config.sonar_sensors.size());
+  data.rfid_measurements.resize(config.rfid_sensors.size());
+  data.co2_measurements.resize(config.co2_sensors.size());
+  data.thermal_measurements.resize(config.thermal_sensors.size());
+  data.sound_measurements.resize(config.sound_sensors.size());
+  return data;
+}
+
 std::string SimulationEngine::spawn_robot(const RobotConfig& config, const Pose2D& pose)
 {
   const std::string& model_type = config.kinematic_model.type;
@@ -159,16 +173,7 @@ std::string SimulationEngine::spawn_robot(const RobotConfig& config, const Pose2
   // set_robot_pose call is not needed.
   const std::string name = world_.add_robot(cfg);
 
-  // Pre-size sensor vectors to match the config so that event.index is always
-  // a valid slot, even before the first sensor fires.
-  RobotSensorData data{};
-  data.laser_scans.resize(cfg.laser_sensors.size());
-  data.sonar_scans.resize(cfg.sonar_sensors.size());
-  data.rfid_measurements.resize(cfg.rfid_sensors.size());
-  data.co2_measurements.resize(cfg.co2_sensors.size());
-  data.thermal_measurements.resize(cfg.thermal_sensors.size());
-  data.sound_measurements.resize(cfg.sound_sensors.size());
-  sensor_data_[name] = std::move(data);
+  sensor_data_[name] = make_empty_sensor_data(cfg);
 
   schedulers_.emplace(name, RateScheduler{ step_dt_ });
   last_events_[name] = {};
@@ -260,14 +265,7 @@ void SimulationEngine::step(double dt)
       register_sensor_streams(robot.name, updated->config);
 
       // Pre-size sensor data for any newly discovered robot.
-      RobotSensorData data{};
-      data.laser_scans.resize(updated->config.laser_sensors.size());
-      data.sonar_scans.resize(updated->config.sonar_sensors.size());
-      data.rfid_measurements.resize(updated->config.rfid_sensors.size());
-      data.co2_measurements.resize(updated->config.co2_sensors.size());
-      data.thermal_measurements.resize(updated->config.thermal_sensors.size());
-      data.sound_measurements.resize(updated->config.sound_sensors.size());
-      sensor_data_[robot.name] = std::move(data);
+      sensor_data_[robot.name] = make_empty_sensor_data(updated->config);
     }
 
     // Update the collision flag on the existing (pre-sized) data entry.
@@ -378,6 +376,17 @@ const std::vector<StreamEvent>& SimulationEngine::last_events(const std::string&
     return kEmptyEvents;
   }
   return it->second;
+}
+
+void SimulationEngine::clear_sensor_data(const std::string& robot_name)
+{
+  const world::RobotState* robot = world_.get_robot(robot_name);
+  if (robot == nullptr)
+  {
+    return;
+  }
+
+  sensor_data_[robot_name] = make_empty_sensor_data(robot->config);
 }
 
 }  // namespace stdr_simulation

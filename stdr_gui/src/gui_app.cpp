@@ -98,6 +98,16 @@ int GuiApp::run()
     if (!plot_panel_)
     {
       plot_panel_ = std::make_unique<stdr::plot::PlotPanel>(*backend_);
+      // Propagate a backend reset to the plot panel so plotters can drop
+      // trajectory/time-keyed state before the next sample against the
+      // restarted sim clock.  Capturing `this` is safe because both the
+      // toolbar and the plot panel live in GuiApp.
+      toolbar_.set_on_reset([this]() {
+        if (plot_panel_)
+        {
+          plot_panel_->notify_reset();
+        }
+      });
     }
 
     const std::shared_ptr<const SimulationSnapshot> snapshot = backend_->get_snapshot();

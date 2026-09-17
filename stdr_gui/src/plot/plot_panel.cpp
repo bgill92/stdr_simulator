@@ -130,6 +130,39 @@ void PlotPanel::remove_slot(std::size_t index)
   init_slot(slot);
 }
 
+void PlotPanel::notify_reset()
+{
+  for (Slot& slot : slots_)
+  {
+    // Drop stale samples so they are not drawn against the restarted time
+    // axis, and reset the sample gate so on_sample fires again immediately
+    // rather than waiting out the old sample_period() window.
+    slot.sink.clear();
+    slot.last_sample = std::chrono::steady_clock::time_point{};
+
+    // Paused slots are included so they do not resume with stale data;
+    // slot.paused is intentionally left untouched.  slot.error is cleared
+    // before on_reset runs so a plotter that errored against pre-reset sim
+    // state gets a fresh chance; if on_reset itself throws, the catch blocks
+    // below put the slot right back into the errored state.
+    slot.error.clear();
+
+    std::unique_ptr<SimView> view = make_backend_sim_view(backend_, slot.laser_cursors, slot.sonar_cursors);
+    try
+    {
+      slot.plotter->on_reset(*view);
+    }
+    catch (const std::exception& e)
+    {
+      slot.error = e.what();
+    }
+    catch (...)
+    {
+      slot.error = "Unknown exception in on_reset.";
+    }
+  }
+}
+
 std::vector<PlotterStatus> PlotPanel::slot_status() const
 {
   std::vector<PlotterStatus> result;

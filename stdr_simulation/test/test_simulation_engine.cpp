@@ -99,6 +99,15 @@ TEST(SimulationEngineTest, DeleteRobot)
   EXPECT_THAT(engine.get_sensor_data(name), IsNull());
 }
 
+TEST(SimulationEngineTest, ClearSensorDataUnknownRobotIsNoop)
+{
+  world::WorldModel world;
+  SimulationEngine engine{ world };
+
+  engine.clear_sensor_data("robot0");
+  EXPECT_THAT(engine.get_sensor_data("robot0"), IsNull());
+}
+
 // ---- Complex cases ----------------------------------------------------------
 
 TEST(SimulationEngineTest, StepUpdatesPose)
@@ -136,6 +145,33 @@ TEST(SimulationEngineTest, StepWithMapRunsSensors)
   ASSERT_THAT(data->laser_scans, SizeIs(1));
   // Each scan has the configured number of rays.
   EXPECT_THAT(data->laser_scans[0].ranges, SizeIs(5));
+}
+
+TEST(SimulationEngineTest, ClearSensorDataResetsToFreshlySpawnedState)
+{
+  world::WorldModel world;
+  world.set_map(free_map());
+  SimulationEngine engine{ world };
+
+  const std::string name = engine.spawn_robot(robot_with_laser(), Pose2D{ 1.0, 1.0, 0.0 });
+  engine.step(0.1);
+
+  const RobotSensorData* populated = engine.get_sensor_data(name);
+  ASSERT_THAT(populated, NotNull());
+  ASSERT_THAT(populated->laser_scans, SizeIs(1));
+  // Confirm the scan actually got populated by the step above, so clearing it
+  // below is a meaningful assertion rather than a no-op check.
+  EXPECT_THAT(populated->laser_scans[0].ranges, SizeIs(5));
+
+  engine.clear_sensor_data(name);
+
+  const RobotSensorData* cleared = engine.get_sensor_data(name);
+  ASSERT_THAT(cleared, NotNull());
+  EXPECT_FALSE(cleared->collided);
+  ASSERT_THAT(cleared->laser_scans, SizeIs(1));
+  // Value-initialized: the slot exists (so event.index stays valid) but holds
+  // no scan data, exactly as at spawn.
+  EXPECT_THAT(cleared->laser_scans[0].ranges, SizeIs(0));
 }
 
 TEST(SimulationEngineTest, StepWithoutMapSkipsRaycastSensors)

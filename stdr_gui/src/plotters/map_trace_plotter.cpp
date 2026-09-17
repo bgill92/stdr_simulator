@@ -59,6 +59,15 @@ public:
     }
   }
 
+  void on_reset(stdr::plot::SimView& /*sim*/) override
+  {
+    // Drop the breadcrumb trail so it does not draw a line from the
+    // pre-reset pose to the post-reset spawn pose.  latest_pose_ is left as
+    // the stale pre-reset value until the next on_sample call overwrites it;
+    // the trail being empty means nothing is drawn from it in the meantime.
+    trail_.clear();
+  }
+
   void on_sample(stdr::plot::SimView& sim, stdr::plot::PlotSink& /*out*/) override
   {
     // on_init may fire before any robot is spawned (PlotPanel is constructed

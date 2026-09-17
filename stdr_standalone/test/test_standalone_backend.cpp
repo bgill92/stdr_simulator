@@ -153,11 +153,16 @@ TEST(StandaloneBackend, StartAndPauseToggleRunningState)
   EXPECT_FALSE(backend.get_snapshot()->running);
 }
 
-TEST(StandaloneBackend, ResetClearsRobotsAndElapsedTime)
+TEST(StandaloneBackend, ResetRestoresSpawnPoseAndClearsElapsedTime)
 {
   StandaloneBackend backend;
   std::ignore = backend.load_map(map_path());
-  std::ignore = backend.spawn_robot(robot_path(), { 1.0, 1.0, 0.0 });
+  const std::string name = backend.spawn_robot(robot_path(), { 1.0, 2.0, 0.5 }).value();
+
+  // Move the robot away from its spawn pose and give it a nonzero cmd_vel,
+  // deterministically (not via integration), so reset() has something to undo.
+  backend.set_robot_pose(name, { 3.0, 4.0, 1.0 });
+  backend.set_cmd_vel(name, stdr_simulation::Twist2D{ .linear_x = 0.5, .linear_y = 0.2, .angular_z = 0.3 });
 
   backend.start();
   // Let simulation run briefly to accumulate elapsed time.
@@ -170,7 +175,17 @@ TEST(StandaloneBackend, ResetClearsRobotsAndElapsedTime)
   backend.reset();
 
   const auto snapshot = backend.get_snapshot();
-  EXPECT_THAT(snapshot->robots, IsEmpty());
+  ASSERT_THAT(snapshot->robots, SizeIs(1));
+  EXPECT_EQ(snapshot->robots[0].name, name);
+  EXPECT_DOUBLE_EQ(snapshot->robots[0].pose.x, 1.0);
+  EXPECT_DOUBLE_EQ(snapshot->robots[0].pose.y, 2.0);
+  EXPECT_DOUBLE_EQ(snapshot->robots[0].pose.theta, 0.5);
+  EXPECT_DOUBLE_EQ(snapshot->robots[0].odom_pose.x, 1.0);
+  EXPECT_DOUBLE_EQ(snapshot->robots[0].odom_pose.y, 2.0);
+  EXPECT_DOUBLE_EQ(snapshot->robots[0].odom_pose.theta, 0.5);
+  EXPECT_DOUBLE_EQ(snapshot->robots[0].cmd_vel.linear_x, 0.0);
+  EXPECT_DOUBLE_EQ(snapshot->robots[0].cmd_vel.linear_y, 0.0);
+  EXPECT_DOUBLE_EQ(snapshot->robots[0].cmd_vel.angular_z, 0.0);
   EXPECT_EQ(snapshot->elapsed_time, 0.0);
   EXPECT_FALSE(snapshot->running);
 }

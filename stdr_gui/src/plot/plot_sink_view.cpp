@@ -30,6 +30,11 @@ void PlotSink::vector(std::string_view name, std::span<const double> xs, std::sp
   }
 }
 
+void PlotSink::clear()
+{
+  channels_.clear();
+}
+
 // ---------------------------------------------------------------------------
 // PlotView
 // ---------------------------------------------------------------------------

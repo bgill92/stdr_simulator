@@ -183,6 +183,11 @@ public:
     return dynamic_cast<const detail::TypedChannel<T>*>(it->second.get());
   }
 
+  /** Drop every channel.  Called by the framework on simulation reset so
+   *  stale samples from before the reset are not drawn against a restarted
+   *  time axis. */
+  void clear();
+
 private:
   static constexpr std::size_t kDefaultCapacity = 4096;
 
@@ -434,6 +439,20 @@ public:
    *  `new_laser_scans()` or `new_sonar_readings()` inside this hook will drain
    *  events that would otherwise be visible on the next `on_sample` call. */
   virtual void on_resume(SimView& /*sim*/)
+  {
+  }
+
+  /** Called once after the simulation has been reset: every robot is back
+   *  at its spawn pose, `sim_time()` is 0 and the sim is stopped.  The
+   *  framework has already cleared this plotter's PlotSink channels, so
+   *  override only to drop algorithm state keyed on time or trajectory
+   *  (trails, last-sample time, teleport detectors).  State that should
+   *  survive across runs (learned parameters, run counters) can be kept.
+   *  Default: no-op.
+   *
+   *  The `SimView` passed here shares the slot's live sensor cursors; the
+   *  same drain caveat as on_pause applies. */
+  virtual void on_reset(SimView& /*sim*/)
   {
   }
 

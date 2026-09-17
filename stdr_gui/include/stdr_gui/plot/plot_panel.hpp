@@ -144,6 +144,13 @@ public:
    *  creates a fresh plotter from the registry factory and calls `on_init`. */
   void remove_slot(std::size_t index);
 
+  /** @brief Call after the backend has been reset.
+   *
+   *  Clears every slot's sink, last-sample gate and error state, then
+   *  invokes `Plotter::on_reset`.  Paused slots are included so they do not
+   *  resume with stale data. */
+  void notify_reset();
+
 private:
   /** Maximum wall-clock duration allowed for a single `on_sample` call.
    *  Calls that exceed this threshold set `slot.overran_budget = true`. */

@@ -115,7 +115,9 @@ public:
   /** @brief Pause the simulation loop. */
   virtual void pause() = 0;
 
-  /** @brief Reset the simulation: remove all robots, keep map. */
+  /** @brief Reset the simulation: stop, zero elapsed time, and teleport every
+   *  robot back to its spawn pose with zero velocity. The map and robot names
+   *  are kept. */
   virtual void reset() = 0;
 
   /** @brief Set simulation speed multiplier (1.0 = realtime).

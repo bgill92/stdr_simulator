@@ -43,7 +43,7 @@ stdr_simulation::Pose2D robot_to_map(const stdr_simulation::Pose2D& p_robot,
 
 bool should_sample(double now_sim_time, double& last_sample_sim_time, double period_seconds) noexcept
 {
-  if ((now_sim_time - last_sample_sim_time) >= period_seconds)
+  if (now_sim_time < last_sample_sim_time || (now_sim_time - last_sample_sim_time) >= period_seconds)
   {
     last_sample_sim_time = now_sim_time;
     return true;
