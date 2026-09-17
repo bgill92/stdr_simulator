@@ -244,7 +244,10 @@ TEST(SimView, LatestLaserReturnedAfterStepWithMap)
   const std::string name = backend.spawn_robot(laser_robot_path(), { 1.0, 1.0, 0.0 }).value();
 
   backend.start();
-  ASSERT_TRUE(poll_until([&] { return backend.sim_time() > 0.0; }));
+  // Poll on an actual laser firing (rate-scheduled at 10 Hz) rather than on
+  // sim_time() > 0.0 — with the standalone default step_dt of 0.01 s, the
+  // first tick alone is not enough sim time for a 10 Hz sensor to fire yet.
+  ASSERT_TRUE(poll_until([&] { return backend.laser_publish_count(name + "/laser_0") > 0; }));
   backend.pause();
 
   std::unordered_map<std::string, std::uint64_t> lc;
@@ -334,9 +337,11 @@ TEST(SimView, NewLaserScansReturnedAfterSteps)
   const std::string name = backend.spawn_robot(laser_robot_path(), { 1.0, 1.0, 0.0 }).value();
 
   backend.start();
-  // Poll until the backend has produced at least one scan so the drain below
-  // sees real data rather than racing against the first step.
-  ASSERT_TRUE(poll_until([&] { return backend.sim_time() > 0.0; }));
+  // Poll on an actual laser firing (rate-scheduled at 10 Hz) so the drain
+  // below sees real data rather than racing against the first step — with
+  // the standalone default step_dt of 0.01 s, sim_time() > 0.0 is true after
+  // just one tick, well before the sensor's first scheduled firing.
+  ASSERT_TRUE(poll_until([&] { return backend.laser_publish_count(name + "/laser_0") > 0; }));
   backend.pause();
 
   std::unordered_map<std::string, std::uint64_t> lc;
@@ -366,10 +371,14 @@ TEST(SimView, NewLaserScansSecondCallSeesOnlyNewScans)
   stdr_standalone::StandaloneBackend backend;
   std::ignore = backend.load_map(map_path());
   const std::string name = backend.spawn_robot(laser_robot_path(), { 1.0, 1.0, 0.0 }).value();
+  const std::string laser_key = name + "/laser_0";
 
-  // Run a first batch of steps.
+  // Run a first batch of steps. Poll on an actual laser firing (rate-
+  // scheduled at 10 Hz) rather than sim_time() > 0.0 — with the standalone
+  // default step_dt of 0.01 s, one tick alone is not enough sim time for the
+  // sensor to have fired yet.
   backend.start();
-  ASSERT_TRUE(poll_until([&] { return backend.sim_time() > 0.0; }));
+  ASSERT_TRUE(poll_until([&] { return backend.laser_publish_count(laser_key) > 0; }));
   backend.pause();
 
   std::unordered_map<std::string, std::uint64_t> lc;
@@ -380,11 +389,11 @@ TEST(SimView, NewLaserScansSecondCallSeesOnlyNewScans)
     EXPECT_THAT(first.scans, Not(IsEmpty()));
   }
 
-  // Run a second batch of steps — capture the sim time after the first pause
-  // so we can tell the second batch has actually produced new steps.
-  const double sim_time_after_first = backend.sim_time();
+  // Run a second batch of steps — wait for the firing count to advance past
+  // the first batch's count so we can tell a new firing has actually occurred.
+  const std::size_t publish_count_after_first = backend.laser_publish_count(laser_key);
   backend.start();
-  ASSERT_TRUE(poll_until([&] { return backend.sim_time() > sim_time_after_first; }));
+  ASSERT_TRUE(poll_until([&] { return backend.laser_publish_count(laser_key) > publish_count_after_first; }));
   backend.pause();
 
   {

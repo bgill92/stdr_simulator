@@ -20,6 +20,12 @@
 namespace stdr_standalone
 {
 
+/// Default physics step for the standalone backend. Smaller than the shared
+/// stdr_simulation::kDefaultStepDt so the GUI renders sub-cell pose updates
+/// without interpolation; sensor cost is unaffected because sensors are
+/// rate-scheduled by their configured frequency, not by tick rate.
+inline constexpr double kStandaloneDefaultStepDt = 0.01;
+
 /** @brief Standalone backend that owns a SimulationEngine and WorldModel.
  *
  *  Runs the simulation on a background thread and provides thread-safe
@@ -100,7 +106,7 @@ private:
   std::condition_variable_any cv_;
   std::atomic<bool> running_{ false };
   std::atomic<double> speed_{ 1.0 };
-  std::atomic<double> step_dt_{ stdr_gui::kDefaultStepDt };
+  std::atomic<double> step_dt_{ kStandaloneDefaultStepDt };
   std::atomic<double> tf_rate_{ stdr_gui::kDefaultTfRate };
   std::atomic<double> odom_rate_{ stdr_gui::kDefaultOdomRate };
   double elapsed_time_{ 0.0 };

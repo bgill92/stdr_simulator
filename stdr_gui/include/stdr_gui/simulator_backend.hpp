@@ -118,14 +118,20 @@ public:
   /** @brief Reset the simulation: remove all robots, keep map. */
   virtual void reset() = 0;
 
-  /** @brief Set simulation speed multiplier (1.0 = realtime). */
+  /** @brief Set simulation speed multiplier (1.0 = realtime).
+   *
+   *  Scales how much simulated time advances per wall-clock second; it never
+   *  changes the physics integration dt (that is set_step_dt()'s concern). */
   virtual void set_speed(double multiplier) = 0;
 
   /** @brief Set the simulation step duration in seconds.
    *
-   *  Controls both the real-time tick interval and the dt passed to the
-   *  physics engine. Smaller values increase CPU cost and sensor sampling
-   *  rate; larger values coarsen integration. Orthogonal to set_speed().
+   *  Controls only the dt passed to the physics engine for each integration
+   *  step. Real-time pacing (how the backend schedules those steps against
+   *  the wall clock) is the backend's own concern, and sensors fire at their
+   *  own configured rate rather than every tick. Smaller values increase CPU
+   *  cost and sensor sampling resolution; larger values coarsen integration.
+   *  Orthogonal to set_speed().
    *
    *  Implementations must clamp to [kMinStepDt, kMaxStepDt]. */
   virtual void set_step_dt(double seconds) = 0;
