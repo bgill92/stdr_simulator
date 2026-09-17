@@ -10,7 +10,7 @@ def generate_launch_description() -> LaunchDescription:
     stdr_resources = get_package_share_directory("stdr_resources")
     map_file = os.path.join(stdr_resources, "maps", "sparse_obstacles.yaml")
     robot_yaml = os.path.join(
-        stdr_resources, "resources", "robots", "pandora_robot.yaml"
+        stdr_resources, "resources", "robots", "simple_robot_noisy.yaml"
     )
 
     stdr_server = Node(
