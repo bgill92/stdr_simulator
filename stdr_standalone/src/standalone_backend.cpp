@@ -117,10 +117,15 @@ void StandaloneBackend::reset()
   {
     const std::lock_guard<std::mutex> lock(sim_mutex_);
     running_.store(false, std::memory_order_relaxed);
-    const std::vector<stdr_simulation::world::RobotState> robots = world_model_.get_all_robots();
-    for (const stdr_simulation::world::RobotState& robot : robots)
+    for (const stdr_simulation::world::RobotState& robot : world_model_.get_all_robots())
     {
-      engine_.delete_robot(robot.name);
+      // Teleport back to spawn: set_robot_pose also collapses the odometry
+      // belief onto ground truth, exactly as at spawn.
+      // The engine's cached per-robot sensor data (last scans, collided flag)
+      // is intentionally left alone: it is recomputed on the first step() after
+      // Start, and SimulationEngine exposes no API to clear it.
+      world_model_.set_robot_pose(robot.name, robot.config.initial_pose);
+      world_model_.set_robot_cmd_vel(robot.name, {});
     }
     elapsed_time_ = 0.0;
   }
