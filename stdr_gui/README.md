@@ -81,6 +81,9 @@ pixi run run-standalone -- --map <map.yaml> --robot <robot.yaml>
 
 `stdr_standalone` constructs a `StandaloneBackend`, hands it to `GuiApp`, and runs the render loop.
 
+Pass `--plotter <Name>` (repeatable, registry/class name, e.g. `--plotter PoseErrorPlotter --plotter MapTracePlotter`) to
+instantiate only the named plotters; omit it to instantiate all registered plotters.
+
 ## Testing
 
 Tests live in `test/` and run as gtests via `ament_add_gtest`:

@@ -27,7 +27,12 @@ namespace stdr_gui
 class GuiApp
 {
 public:
-  explicit GuiApp(std::unique_ptr<SimulatorBackend> backend);
+  /** @param backend           Owned simulator backend driving the simulation.
+   *  @param enabled_plotters  Registry (class) names of the plotters to instantiate
+   *                           in the plot panel.  Empty (the default) enables all
+   *                           registered plotters. Forwarded to `PlotPanel` when it
+   *                           is lazily constructed on the first frame. */
+  explicit GuiApp(std::unique_ptr<SimulatorBackend> backend, std::vector<std::string> enabled_plotters = {});
   ~GuiApp();
 
   GuiApp(const GuiApp&) = delete;
@@ -59,6 +64,11 @@ private:
   GLFWwindow* window_{ nullptr };
   std::atomic<bool> shutdown_requested_{ false };
   bool first_frame_{ true };
+
+  // Registry (class) names of the plotters to enable in the plot panel; empty
+  // means all. Stashed here because the panel is constructed lazily on the
+  // first frame, after `backend_` is fully ready.
+  std::vector<std::string> enabled_plotters_;
 
   TeleopController teleop_;
   // Tracks whether we sent a non-zero velocity command last frame so we can
