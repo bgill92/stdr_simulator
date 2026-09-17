@@ -16,7 +16,7 @@ Before running any rollback, reset, or overwrite command (`git reset`, `git chec
 ## Before Committing
 
 1. `pre-commit run -a` — must pass
-2. Squashing to a single commit is recommended. A series of 2–3 well-organized commits is also fine if the user prefers. CI enforces a max of 3 commits per PR.
+2. Squashing to a single commit is recommended. A series of 2–3 well-organized commits is also fine if the user prefers. CI enforces a max of 3 commits per PR. PRs are squash-merged regardless (see Merging), so the branch commits are only for review.
 3. Force push: always `--force-with-lease` with explicit branch name
 
 ## PR Titles
@@ -26,6 +26,12 @@ Before running any rollback, reset, or overwrite command (`git reset`, `git chec
 - Documentation changes: start with "Docs: " (e.g., "Docs: Add setup guide for new users").
 - New features: start with "Add " (e.g., "Add support for custom gripper profiles").
 - Claude workflow changes: start with "Claude: " (e.g., "Claude: Updated CLAUDE.md with better git process").
+
+## Merging
+
+- **Always squash-merge**: `gh pr merge <n> --squash`. Merge commits and rebase merges are disabled on the repo. `jazzy-devel` history is one conventional commit per PR.
+- A single-commit PR keeps its commit message as the squash message. A multi-commit PR would get the PR title, which is not in `type(scope): description` form, so pass `--subject "type(scope): description"` (and `--body` if the combined bodies need trimming).
+- Never merge a PR the user has not asked to merge. Draft PRs are for the user to promote.
 
 ## Pull Requests
 
