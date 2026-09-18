@@ -1,6 +1,7 @@
 #include <stdr_gui/plot/helpers.hpp>
 
 #include <cmath>
+#include <cstddef>
 
 namespace stdr::plot::helpers
 {
@@ -39,6 +40,32 @@ stdr_simulation::Pose2D robot_to_map(const stdr_simulation::Pose2D& p_robot,
     // robot-frame orientation plus the robot's own heading.
     .theta = p_robot.theta + robot_in_map.theta,
   };
+}
+
+std::vector<Point2> scan_to_map_points(const stdr_simulation::LaserScan& scan,
+                                       const stdr_simulation::Pose2D& laser_in_robot,
+                                       const stdr_simulation::Pose2D& robot_in_map)
+{
+  std::vector<Point2> points;
+  points.reserve(scan.ranges.size());
+
+  const stdr_simulation::Pose2D sensor_in_map = robot_to_map(laser_in_robot, robot_in_map);
+
+  for (std::size_t i = 0; i < scan.ranges.size(); ++i)
+  {
+    const double range = static_cast<double>(scan.ranges[i]);
+    if (!std::isfinite(range) || range < scan.range_min || range > scan.range_max)
+    {
+      continue;
+    }
+    const double angle = sensor_in_map.theta + scan.angle_min + static_cast<double>(i) * scan.angle_increment;
+    points.push_back({
+        .x = sensor_in_map.x + range * std::cos(angle),
+        .y = sensor_in_map.y + range * std::sin(angle),
+    });
+  }
+
+  return points;
 }
 
 bool should_sample(double now_sim_time, double& last_sample_sim_time, double period_seconds) noexcept

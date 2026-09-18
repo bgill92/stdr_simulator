@@ -542,6 +542,26 @@ std::optional<stdr_simulation::LaserScan> Ros2Backend::latest_laser(const std::s
   return it->second;
 }
 
+std::optional<stdr_simulation::Pose2D> Ros2Backend::laser_pose(const std::string& robot_id,
+                                                               const std::string& sensor_id) const
+{
+  const std::lock_guard<std::mutex> lock(snapshot_mutex_);
+  const auto it = std::find_if(robot_states_.begin(), robot_states_.end(),
+                               [&robot_id](const stdr_simulation::world::RobotState& s) { return s.name == robot_id; });
+  if (it == robot_states_.end())
+  {
+    return std::nullopt;
+  }
+  for (const stdr_simulation::LaserConfig& cfg : it->config.laser_sensors)
+  {
+    if (cfg.frame_id == sensor_id)
+    {
+      return cfg.pose;
+    }
+  }
+  return std::nullopt;
+}
+
 stdr_gui::DrainedLaserResult Ros2Backend::poll_laser_events(std::uint64_t& cursor, const std::string& robot_id,
                                                             const std::string& sensor_id)
 {

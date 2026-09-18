@@ -316,6 +316,11 @@ public:
   [[nodiscard]] virtual std::optional<stdr_simulation::LaserScan> latest_laser(const RobotId& robot_id,
                                                                                const SensorId& sensor_id) const = 0;
 
+  /** Return the mount pose of @p sensor_id on @p robot_id, in the robot's
+   *  body frame.  Returns nullopt if the robot or sensor is not found. */
+  [[nodiscard]] virtual std::optional<stdr_simulation::Pose2D> laser_pose(const RobotId& robot_id,
+                                                                          const SensorId& sensor_id) const = 0;
+
   /** Return the most recent sonar reading from @p sensor_id on @p robot_id.
    *  Returns nullopt if the robot or sensor is not found, or if no reading
    *  has been produced yet. */

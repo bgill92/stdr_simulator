@@ -16,6 +16,7 @@
 
 #include <cmath>
 #include <numbers>
+#include <vector>
 
 namespace stdr::plot::helpers
 {
@@ -85,6 +86,19 @@ namespace stdr::plot::helpers
  *  The output theta is the input point's orientation plus the robot's heading. */
 [[nodiscard]] stdr_simulation::Pose2D robot_to_map(const stdr_simulation::Pose2D& p_robot,
                                                    const stdr_simulation::Pose2D& robot_in_map) noexcept;
+
+// ---------------------------------------------------------------------------
+// Laser scan conversion
+// ---------------------------------------------------------------------------
+
+/** @brief Convert a laser scan into map-frame end points.
+ *  @param scan          Ranges + angular layout.
+ *  @param laser_in_robot Laser mount pose in the robot body frame.
+ *  @param robot_in_map  Robot pose in the map frame.
+ *  Rays with non-finite range or range outside [range_min, range_max] are skipped. */
+[[nodiscard]] std::vector<Point2> scan_to_map_points(const stdr_simulation::LaserScan& scan,
+                                                     const stdr_simulation::Pose2D& laser_in_robot,
+                                                     const stdr_simulation::Pose2D& robot_in_map);
 
 // ---------------------------------------------------------------------------
 // Time-aligned sampling gate

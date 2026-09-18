@@ -21,10 +21,12 @@ This package was rewritten from the ground up on the `feat/phase-9-plot-panel` b
 
 ## Plotters
 
-`stdr_gui_plotters` is a separate static library inside this package that holds the built-in plot plugins. Two ship today:
+`stdr_gui_plotters` is a separate static library inside this package that holds the built-in plot plugins:
 
 * `PoseErrorPlotter` (`src/plotters/pose_error_plotter.cpp`) — drives robot 0 in a circle and plots ground-truth vs dead-reckoning pose.
 * `MapTracePlotter` (`src/plotters/map_trace_plotter.cpp`) — renders the map texture, the robot footprint, and an age-coloured breadcrumb trail.
+* `OdometryTracePlotter` (`src/plotters/odometry_trace_plotter.cpp`) — renders the map with separate truth (green) and odometry-belief (orange) breadcrumb trails so drift is visible at a glance.
+* `ScanTracePlotter` (`src/plotters/scan_trace_plotter.cpp`) — Odometry Trace plus the ability to click any breadcrumb and replay the laser scan captured there, placed from either the truth or odometry pose.
 
 Authoring a new plotter is three steps: subclass `stdr::plot::Plotter`, override `on_sample` / `on_render` / `name`, and call `REGISTER_PLOTTER(MyPlotter)` at file scope. See [`ARCHITECTURE.md`](ARCHITECTURE.md#plotter-framework) for the full contract, and `pose_error_plotter.cpp` for a complete worked example.
 

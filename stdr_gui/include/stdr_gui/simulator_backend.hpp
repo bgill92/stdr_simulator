@@ -356,6 +356,16 @@ public:
     return std::nullopt;
   }
 
+  /** @brief Return the mount pose of @p sensor_id on @p robot_id, in the
+   *  robot's body frame.
+   *
+   *  Returns nullopt if the robot or sensor is not found. */
+  [[nodiscard]] virtual std::optional<stdr_simulation::Pose2D> laser_pose(const std::string& /*robot_id*/,
+                                                                          const std::string& /*sensor_id*/) const
+  {
+    return std::nullopt;
+  }
+
   /** @brief Return the latest sonar reading from @p sensor_id on @p robot_id.
    *
    *  Returns nullopt if the robot or sensor is not found, or if no scan has

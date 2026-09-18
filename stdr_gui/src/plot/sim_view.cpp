@@ -148,6 +148,12 @@ public:
     return backend_.latest_sonar(robot_id, sensor_id);
   }
 
+  [[nodiscard]] std::optional<stdr_simulation::Pose2D> laser_pose(const RobotId& robot_id,
+                                                                  const SensorId& sensor_id) const override
+  {
+    return backend_.laser_pose(robot_id, sensor_id);
+  }
+
   // ---------------------------------------------------------------------------
   // History drain — copies ring data into local buffers for safe span lifetime
   // ---------------------------------------------------------------------------
