@@ -75,6 +75,8 @@ public:
   [[nodiscard]] std::optional<stdr_simulation::Twist2D> twist(const std::string& robot_id) const override;
   [[nodiscard]] std::optional<stdr_simulation::LaserScan> latest_laser(const std::string& robot_id,
                                                                        const std::string& sensor_id) const override;
+  [[nodiscard]] std::optional<stdr_simulation::Pose2D> laser_pose(const std::string& robot_id,
+                                                                  const std::string& sensor_id) const override;
   [[nodiscard]] std::optional<stdr_simulation::SonarScan> latest_sonar(const std::string& robot_id,
                                                                        const std::string& sensor_id) const override;
   [[nodiscard]] std::optional<bool> collided(const std::string& robot_id) const override;

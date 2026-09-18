@@ -633,6 +633,33 @@ TEST(StandaloneBackendIntrospection, LatestLaserNulloptForWrongSensorId)
   EXPECT_EQ(backend.latest_laser(name, "no_such_sensor"), std::nullopt);
 }
 
+// --- Introspection: laser_pose ---
+
+TEST(StandaloneBackendIntrospection, LaserPoseReturnsNulloptForUnknownRobot)
+{
+  StandaloneBackend backend;
+  EXPECT_EQ(backend.laser_pose("does_not_exist", "laser_0"), std::nullopt);
+}
+
+TEST(StandaloneBackendIntrospection, LaserPoseReturnsNulloptForUnknownSensor)
+{
+  StandaloneBackend backend;
+  const std::string name = backend.spawn_robot(laser_robot_5hz_path(), { 0.0, 0.0, 0.0 }).value();
+  EXPECT_EQ(backend.laser_pose(name, "no_such_sensor"), std::nullopt);
+}
+
+TEST(StandaloneBackendIntrospection, LaserPoseReturnsConfiguredMountPose)
+{
+  StandaloneBackend backend;
+  const std::string name = backend.spawn_robot(laser_robot_5hz_path(), { 0.0, 0.0, 0.0 }).value();
+
+  const std::optional<stdr_simulation::Pose2D> mount_pose = backend.laser_pose(name, "laser_0");
+  ASSERT_TRUE(mount_pose.has_value());
+  EXPECT_DOUBLE_EQ(mount_pose->x, 0.0);
+  EXPECT_DOUBLE_EQ(mount_pose->y, 0.0);
+  EXPECT_DOUBLE_EQ(mount_pose->theta, 0.0);
+}
+
 // Sonar scans returned after a step with a map (khepera2 has sonar_0..sonar_7).
 TEST(StandaloneBackendIntrospection, SonarScanReturnedAfterStepWithMap)
 {

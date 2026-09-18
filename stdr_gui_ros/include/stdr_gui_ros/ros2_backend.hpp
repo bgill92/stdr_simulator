@@ -83,6 +83,8 @@ public:
   [[nodiscard]] std::optional<stdr_simulation::Point2D> center_of_rotation(const std::string& robot_id) const override;
   [[nodiscard]] std::optional<stdr_simulation::LaserScan> latest_laser(const std::string& robot_id,
                                                                        const std::string& sensor_id) const override;
+  [[nodiscard]] std::optional<stdr_simulation::Pose2D> laser_pose(const std::string& robot_id,
+                                                                  const std::string& sensor_id) const override;
   [[nodiscard]] stdr_gui::DrainedLaserResult poll_laser_events(std::uint64_t& cursor, const std::string& robot_id,
                                                                const std::string& sensor_id) override;
   [[nodiscard]] std::optional<stdr_simulation::SonarScan> latest_sonar(const std::string& robot_id,

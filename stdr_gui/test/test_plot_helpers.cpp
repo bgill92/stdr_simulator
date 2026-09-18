@@ -9,6 +9,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
 #include <numbers>
 #include <optional>
 #include <span>
@@ -20,6 +21,7 @@ namespace stdr::plot::helpers
 namespace
 {
 
+using ::testing::IsEmpty;
 using ::testing::SizeIs;
 
 // ---------------------------------------------------------------------------
@@ -93,6 +95,11 @@ public:
   }
   [[nodiscard]] std::optional<stdr_simulation::SonarScan> latest_sonar(const RobotId& /*robot_id*/,
                                                                        const SensorId& /*sensor_id*/) const override
+  {
+    return std::nullopt;
+  }
+  [[nodiscard]] std::optional<stdr_simulation::Pose2D> laser_pose(const RobotId& /*robot_id*/,
+                                                                  const SensorId& /*sensor_id*/) const override
   {
     return std::nullopt;
   }
@@ -239,6 +246,79 @@ TEST(PlotHelpers, RobotToMapInvertsMapToRobot)
   EXPECT_NEAR(recovered.x, p_map.x, 1e-10);
   EXPECT_NEAR(recovered.y, p_map.y, 1e-10);
   EXPECT_NEAR(recovered.theta, p_map.theta, 1e-10);
+}
+
+// ---------------------------------------------------------------------------
+// scan_to_map_points
+// ---------------------------------------------------------------------------
+
+TEST(PlotHelpers, ScanToMapPointsEmptyScanIsEmpty)
+{
+  const stdr_simulation::LaserScan scan{};
+  const std::vector<Point2> points = scan_to_map_points(scan, {}, {});
+  EXPECT_THAT(points, IsEmpty());
+}
+
+TEST(PlotHelpers, ScanToMapPointsSkipsOutOfRangeAndNonFiniteRays)
+{
+  // All rays share angle 0 (angle_increment = 0) so only the range value
+  // determines which ray survives filtering.
+  stdr_simulation::LaserScan scan;
+  scan.angle_min = 0.0;
+  scan.angle_increment = 0.0;
+  scan.range_min = 0.1;
+  scan.range_max = 5.0;
+  scan.ranges = { 0.05F, 6.0F, std::numeric_limits<float>::quiet_NaN(), std::numeric_limits<float>::infinity(), 2.0F };
+
+  const std::vector<Point2> points = scan_to_map_points(scan, {}, {});
+  ASSERT_THAT(points, SizeIs(1));
+  EXPECT_NEAR(points[0].x, 2.0, 1e-9);
+  EXPECT_NEAR(points[0].y, 0.0, 1e-9);
+}
+
+TEST(PlotHelpers, ScanToMapPointsSingleRayAtIdentityPosesLandsOnXAxis)
+{
+  stdr_simulation::LaserScan scan;
+  scan.angle_min = 0.0;
+  scan.angle_increment = 0.0;
+  scan.range_min = 0.0;
+  scan.range_max = 10.0;
+  scan.ranges = { 3.0F };
+
+  const std::vector<Point2> points = scan_to_map_points(scan, {}, {});
+  ASSERT_THAT(points, SizeIs(1));
+  EXPECT_NEAR(points[0].x, 3.0, 1e-9);
+  EXPECT_NEAR(points[0].y, 0.0, 1e-9);
+}
+
+TEST(PlotHelpers, ScanToMapPointsRotatedRobotWithOffsetLaser)
+{
+  // Robot rotated 90 degrees at the map origin; laser mounted 0.2 m ahead
+  // along the robot's local X axis with no mount rotation.
+  //
+  // Hand calculation:
+  //   sensor_in_map = robot_to_map(laser_in_robot={0.2,0,0}, robot_in_map={0,0,pi/2})
+  //     cos(pi/2) = 0, sin(pi/2) = 1
+  //     sensor.x = 0 + 0*0.2 - 1*0 = 0
+  //     sensor.y = 0 + 1*0.2 + 0*0 = 0.2
+  //     sensor.theta = 0 + pi/2 = pi/2
+  //   ray angle = sensor.theta + angle_min(0) = pi/2
+  //   point.x = sensor.x + 1.0*cos(pi/2) = 0
+  //   point.y = sensor.y + 1.0*sin(pi/2) = 0.2 + 1.0 = 1.2
+  const stdr_simulation::Pose2D laser_in_robot{ 0.2, 0.0, 0.0 };
+  const stdr_simulation::Pose2D robot_in_map{ 0.0, 0.0, std::numbers::pi / 2.0 };
+
+  stdr_simulation::LaserScan scan;
+  scan.angle_min = 0.0;
+  scan.angle_increment = 0.0;
+  scan.range_min = 0.0;
+  scan.range_max = 10.0;
+  scan.ranges = { 1.0F };
+
+  const std::vector<Point2> points = scan_to_map_points(scan, laser_in_robot, robot_in_map);
+  ASSERT_THAT(points, SizeIs(1));
+  EXPECT_NEAR(points[0].x, 0.0, 1e-9);
+  EXPECT_NEAR(points[0].y, 1.2, 1e-9);
 }
 
 // ---------------------------------------------------------------------------

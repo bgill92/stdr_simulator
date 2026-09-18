@@ -718,6 +718,25 @@ std::optional<stdr_simulation::LaserScan> StandaloneBackend::latest_laser(const 
   return std::nullopt;
 }
 
+std::optional<stdr_simulation::Pose2D> StandaloneBackend::laser_pose(const std::string& robot_id,
+                                                                     const std::string& sensor_id) const
+{
+  const std::lock_guard<std::mutex> lock(sim_mutex_);
+  const stdr_simulation::world::RobotState* robot = world_model_.get_robot(robot_id);
+  if (robot == nullptr)
+  {
+    return std::nullopt;
+  }
+  for (const stdr_simulation::LaserConfig& cfg : robot->config.laser_sensors)
+  {
+    if (cfg.frame_id == sensor_id)
+    {
+      return cfg.pose;
+    }
+  }
+  return std::nullopt;
+}
+
 std::optional<stdr_simulation::SonarScan> StandaloneBackend::latest_sonar(const std::string& robot_id,
                                                                           const std::string& sensor_id) const
 {
